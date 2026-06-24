@@ -22,19 +22,20 @@ from __future__ import annotations
 from math import gcd
 
 import numpy as np
-from scipy.signal import firwin, lfilter, resample_poly
+from scipy.signal import firwin, lfilter, resample_poly, welch
 
 AUDIO_FS = 48_000
 BAUD = 1200
 MARK_HZ = 1200
 SPACE_HZ = 1800
 DEFAULT_OFFSET_HZ = 250_000   # tune this far below the channel to dodge the DC spike
-# Channel-select cutoff before FM demod. Widened from 5 kHz to tolerate the
-# frequency error of a non-TCXO dongle (a generic R820T can be tens of ppm =
-# ~10-25 kHz at 458 MHz); a carrier offset only adds DC after FM demod, which the
-# 1200/1800 Hz matched filters reject, so passing it through is harmless. Set
-# --ppm if the dongle's error is known. (Theory-based; validate on a live train.)
-CHANNEL_LPF_HZ = 15_000
+# Channel-select cutoff before FM demod. Kept tight (~6 kHz) for selectivity: the
+# AAR channels are spaced 12.5 kHz, so DPU (457.9250) and the 457.9500 neighbor
+# sit ±12.5 kHz from EOT and MUST be rejected — otherwise they bleed in, corrupt
+# the demod, and trip the carrier detector. Real-world captures showed the dongle
+# is on-frequency (~-125 Hz), so no extra width is needed for ppm; set --ppm if a
+# given dongle drifts. (A brief 15 kHz experiment let neighbors through; reverted.)
+CHANNEL_LPF_HZ = 6_000
 
 
 def _resample_factors(fs_in: int, fs_out: int) -> tuple[int, int]:
@@ -76,24 +77,20 @@ def audio_to_soft(audio: np.ndarray, audio_fs: int = AUDIO_FS) -> np.ndarray:
 
 
 def channel_activity_db(iq: np.ndarray, fs_in: int, offset_hz: float,
-                        bw: float = 2 * CHANNEL_LPF_HZ,
+                        halfbw: float = 5_000.0,
                         guard_hz: float = 120_000) -> float:
     """In-channel vs guard-band power ratio (dB) — a carrier-present detector.
 
-    Ratio-based, so it's robust to the dongle's AGC (which compresses absolute
-    levels). ~0 dB for noise; a real EOT/HOT carrier pushes it well positive.
+    Measured in the frequency domain (Welch PSD) so the in-band window is sharp:
+    only ±`halfbw` around the EOT carrier counts, which rejects the ±12.5 kHz
+    adjacent channels (DPU 457.9250, neighbor 457.9500) that a wide/short FIR
+    would leak. Ratio-based, so robust to the dongle's AGC. ~0 dB for noise; a
+    real EOT carrier pushes it well positive even at low burst duty cycle.
     """
-    n = np.arange(len(iq))
-    taps = firwin(65, bw / 2, fs=fs_in)
-
-    def power_at(off: float) -> float:
-        x = iq * np.exp(-2j * np.pi * off / fs_in * n)
-        x = lfilter(taps, 1.0, x)
-        return float(np.mean(np.abs(x) ** 2))
-
-    p_in = power_at(offset_hz)
-    p_guard = power_at(offset_hz - guard_hz)
-    return 10 * np.log10(p_in / (p_guard + 1e-20))
+    f, P = welch(iq, fs=fs_in, nperseg=8192, return_onesided=False)
+    in_band = P[np.abs(f - offset_hz) < halfbw]
+    guard = P[np.abs(f - (offset_hz - guard_hz)) < halfbw]
+    return float(10 * np.log10(in_band.mean() / (guard.mean() + 1e-20)))
 
 
 def _s32(x: int) -> int:
