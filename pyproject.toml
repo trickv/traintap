@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "traintap"
+version = "0.1.0"
+description = "RTL-SDR End/Head-of-Train (EOT/HOT) telemetry decoder"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    # pyrtlsdr 0.3.x binds rtlsdr_set_dithering at import, which the stock
+    # (osmocom) librtlsdr.so lacks; 0.2.93 works with it. 0.2.93 imports
+    # pkg_resources, removed in setuptools 81, so pin setuptools too.
+    "pyrtlsdr==0.2.93",
+    "setuptools<81",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+traintap = "traintap.cli:main"
+
+[tool.setuptools]
+packages = ["traintap"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

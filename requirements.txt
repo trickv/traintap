@@ -1,0 +1,10 @@
+numpy>=1.24
+scipy>=1.10
+pyrtlsdr==0.2.93   # 0.3.x needs librtlsdr's rtlsdr_set_dithering (rtl-sdr-blog fork); stock lib lacks it
+setuptools<81     # pyrtlsdr 0.2.93 imports pkg_resources, removed in setuptools 81+
+# Test-only: pytest>=7
+#
+# Runtime hardware dependency (NOT pip): the system librtlsdr shared library.
+#   sudo apt install rtl-sdr librtlsdr-dev
+# and blacklist the DVB kernel driver so the dongle is free for SDR use:
+#   echo 'blacklist dvb_usb_rtl28xxu' | sudo tee /etc/modprobe.d/blacklist-rtl.conf
