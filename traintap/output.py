@@ -71,6 +71,87 @@ class _Stat:
     last_console_epoch: float = 0.0
 
 
+PASS_CSV_COLUMNS = ["start", "end", "duration_s", "eot_units", "eot_pkts",
+                    "dpu_units", "dpu_pkts", "hot_units", "hot_pkts"]
+
+
+@dataclass
+class PassTracker:
+    """Groups packets heard close in time into one 'train pass'.
+
+    Because EOT and DPU are decoded from the same dwell, packets within `gap`
+    seconds of each other belong to the same physical train going by. Each pass
+    is tagged by its EOT unit address(es) (the train's identity) and lists any
+    DPU (and HOT) units heard alongside — i.e. the coordination between an EOT
+    train ID and the distributed-power telemetry of the same train.
+    """
+
+    gap: float = 90.0
+    csv_path: str | None = None
+    console: bool = True
+    n_passes: int = field(default=0, init=False)
+    _members: dict = field(default_factory=dict, init=False)   # source -> {unit: count}
+    _start: float = field(default=0.0, init=False)
+    _last: float = field(default=0.0, init=False)
+    _csv_file: object = field(default=None, init=False)
+    _csv_writer: object = field(default=None, init=False)
+
+    def __post_init__(self):
+        if self.csv_path:
+            new = not os.path.exists(self.csv_path) or os.path.getsize(self.csv_path) == 0
+            self._csv_file = open(self.csv_path, "a", newline="")
+            self._csv_writer = csv.DictWriter(self._csv_file, fieldnames=PASS_CSV_COLUMNS)
+            if new:
+                self._csv_writer.writeheader()
+                self._csv_file.flush()
+
+    def add(self, pkt: Packet, epoch: float) -> None:
+        if self._members and (epoch - self._last) > self.gap:
+            self.flush()
+        if not self._members:
+            self._start = epoch
+        d = self._members.setdefault(pkt.source, {})
+        u = "?" if pkt.unit_addr is None else pkt.unit_addr
+        d[u] = d.get(u, 0) + 1
+        self._last = epoch
+
+    def tick(self, now: float) -> None:
+        if self._members and (now - self._last) > self.gap:
+            self.flush()
+
+    def _fmt(self, source: str) -> str:
+        d = self._members.get(source, {})
+        return " ".join(f"{u}x{c}" for u, c in sorted(d.items(), key=lambda kv: -kv[1])) or "-"
+
+    def flush(self) -> None:
+        if not self._members:
+            return
+        self.n_passes += 1
+        dur = self._last - self._start
+        if self.console:
+            t = lambda e: time.strftime("%H:%M:%S", time.localtime(e))
+            print(f"== PASS {t(self._start)}-{t(self._last)} ({dur:.0f}s)  "
+                  f"EOT {self._fmt('EOT')}  DPU {self._fmt('DPU')}", file=sys.stderr)
+        if self._csv_writer is not None:
+            units = lambda s: "|".join(str(u) for u in self._members.get(s, {}))
+            pkts = lambda s: sum(self._members.get(s, {}).values())
+            fmt = lambda e: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(e))
+            self._csv_writer.writerow({
+                "start": fmt(self._start), "end": fmt(self._last),
+                "duration_s": f"{dur:.0f}",
+                "eot_units": units("EOT"), "eot_pkts": pkts("EOT"),
+                "dpu_units": units("DPU"), "dpu_pkts": pkts("DPU"),
+                "hot_units": units("HOT"), "hot_pkts": pkts("HOT")})
+            self._csv_file.flush()
+        self._members = {}
+
+    def close(self) -> None:
+        self.flush()
+        if self._csv_file is not None:
+            self._csv_file.close()
+            self._csv_file = None
+
+
 @dataclass
 class Reporter:
     """Routes packets to console + CSV with per-unit dedupe and live stats.
@@ -85,6 +166,8 @@ class Reporter:
     stats_interval: float = 60.0
     console: bool = True
     keep_invalid: bool = False
+    passes_csv: str | None = None
+    pass_gap: float = 90.0
 
     _csv_file: object = field(default=None, init=False)
     _csv_writer: object = field(default=None, init=False)
@@ -92,6 +175,7 @@ class Reporter:
     _total: int = field(default=0, init=False)
     _invalid: int = field(default=0, init=False)
     _last_summary: float = field(default=0.0, init=False)
+    _passes: object = field(default=None, init=False)
 
     def __post_init__(self):
         if self.csv_path:
@@ -101,6 +185,8 @@ class Reporter:
             if new:
                 self._csv_writer.writeheader()
                 self._csv_file.flush()
+        self._passes = PassTracker(gap=self.pass_gap, csv_path=self.passes_csv,
+                                   console=self.console)
 
     def report(self, pkt: Packet, epoch: float | None = None) -> None:
         epoch = time.time() if epoch is None else epoch
@@ -112,6 +198,8 @@ class Reporter:
         if self._csv_writer is not None:
             self._csv_writer.writerow(_row(pkt, epoch))
             self._csv_file.flush()
+
+        self._passes.add(pkt, epoch)
 
         key = (pkt.source, pkt.unit_addr)
         st = self._stats.setdefault(key, _Stat())
@@ -149,7 +237,14 @@ class Reporter:
             lines.append(f"  {src} unit {addr}: {st.count} packets")
         return "\n".join(lines)
 
+    def tick(self, now: float) -> None:
+        """Flush a completed train pass once the channel goes quiet."""
+        if self._passes is not None:
+            self._passes.tick(now)
+
     def close(self) -> None:
+        if self._passes is not None:
+            self._passes.close()
         if self._csv_file is not None:
             self._csv_file.close()
             self._csv_file = None

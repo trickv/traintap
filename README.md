@@ -34,6 +34,14 @@ for free whenever listening for EOT. (Disable with `--no-dpu`.) DPU shares EOT's
 AAR framing/BCH; its non-address field semantics are provisional pending a clean
 live capture.
 
+### Train passes (EOT ↔ DPU correlation)
+
+Packets heard within `--pass-gap` seconds of each other are the same train going
+by. `--passes-csv` logs one row per pass — start/end, and the EOT unit ID(s)
+alongside any DPU (and HOT) units heard together — so a mid-train distributed-
+power unit is tied to the EOT that identifies the train. The console prints a
+`== PASS hh:mm:ss-hh:mm:ss  EOT 69686x4  DPU 12345x2` line as each pass closes.
+
 Modulation is 1200-baud FFSK in an ~8 kHz NFM channel (mark 1200 Hz, space
 1800 Hz after FM demod).
 
@@ -128,6 +136,8 @@ Record real I/Q while a train passes, then replay it as a regression fixture.
 | `--offset` | tuning offset below channel to dodge the DC spike (default 250 kHz) |
 | `--csv FILE` | append decoded packets (CSV, header on create) |
 | `--bch-correct N` | BCH-correct up to N bit errors/frame (`0` = off; default 2) |
+| `--passes-csv FILE` | log one row per train pass (EOT ID ↔ DPU/HOT units) |
+| `--pass-gap S` | silence (s) that ends a train pass (default 90) |
 | `--dedupe S` | suppress repeat console lines per unit for S seconds (`0` = off) |
 | `--stats-interval S` | live summary cadence (`0` = off) |
 | `--keep-invalid` | also show BCH-failed packets (debugging) |

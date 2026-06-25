@@ -59,6 +59,11 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="seconds to suppress repeat console lines per unit (0=off)")
     o.add_argument("--stats-interval", type=float, default=60.0,
                    help="seconds between live stats summaries (0=off)")
+    o.add_argument("--passes-csv", metavar="FILE",
+                   help="log one row per train pass, correlating the EOT unit ID "
+                        "with DPU (and HOT) units heard together")
+    o.add_argument("--pass-gap", type=float, default=90.0,
+                   help="seconds of silence that ends a train pass (default 90)")
     o.add_argument("--quiet", action="store_true", help="no per-packet console output")
     o.add_argument("--keep-invalid", action="store_true",
                    help="also report BCH-failed packets (debugging)")
@@ -188,6 +193,7 @@ def run_loop(source, plan, reporter, *, is_replay: bool,
                                  max_correct=max_correct)
         for pkt in pkts:
             reporter.report(pkt)
+        reporter.tick(time.time())   # close out a finished train pass on silence
         plan.record_result(name, eot_valid, time.time())
         if is_replay and source.exhausted():
             break
@@ -208,7 +214,8 @@ def cmd_run(args) -> int:
 
     reporter = Reporter(csv_path=args.csv, dedupe=args.dedupe,
                         stats_interval=args.stats_interval,
-                        console=not args.quiet, keep_invalid=args.keep_invalid)
+                        console=not args.quiet, keep_invalid=args.keep_invalid,
+                        passes_csv=args.passes_csv, pass_gap=args.pass_gap)
     try:
         run_loop(source, plan, reporter, is_replay=bool(args.replay),
                  save_active_dir=args.save_active,
