@@ -9,18 +9,19 @@ import time
 
 from . import EOT_FREQ_HZ, HOT_FREQ_HZ, __version__
 from .dsp import DEFAULT_OFFSET_HZ, channel_activity_db, iq_to_bits, synthesize_iq
-from .frame import Packet, encode_eot, find_frames
+from .frame import DEFAULT_MAX_CORRECT, Packet, encode_eot, find_frames
 from .output import Reporter
 
 
 def decode_dwell(name: str, freq_hz: int, iq, fs: int, offset_hz: float,
-                 keep_invalid: bool = False) -> list[Packet]:
+                 keep_invalid: bool = False,
+                 max_correct: int = DEFAULT_MAX_CORRECT) -> list[Packet]:
     """Decode one dwell's I/Q into packets (both bit polarities searched)."""
     bits, inv = iq_to_bits(iq, fs, offset_hz)
     out: list[Packet] = []
     seen: set[str] = set()
     for stream in (bits, inv):
-        for pkt in find_frames(stream, freq_hz, source=name):
+        for pkt in find_frames(stream, freq_hz, source=name, max_correct=max_correct):
             if not pkt.valid and not keep_invalid:
                 continue
             if pkt.data_block in seen:
@@ -59,6 +60,10 @@ def _build_parser() -> argparse.ArgumentParser:
     o.add_argument("--quiet", action="store_true", help="no per-packet console output")
     o.add_argument("--keep-invalid", action="store_true",
                    help="also report BCH-failed packets (debugging)")
+    o.add_argument("--bch-correct", type=int, default=DEFAULT_MAX_CORRECT,
+                   metavar="N", help="BCH-correct up to N bit errors per frame "
+                   "(0 disables; default %(default)s). Corrected packets are "
+                   "logged with their correction count.")
 
     r = p.add_argument_group("capture / replay / test")
     r.add_argument("--record", metavar="FILE.npz",
@@ -143,7 +148,8 @@ def cmd_record(args) -> int:
 
 def run_loop(source, plan, reporter, *, is_replay: bool,
              save_active_dir: str | None = None,
-             activity_threshold: float = 6.0) -> None:
+             activity_threshold: float = 6.0,
+             max_correct: int = DEFAULT_MAX_CORRECT) -> None:
     from .capture import record_iq
     if save_active_dir:
         os.makedirs(save_active_dir, exist_ok=True)
@@ -167,7 +173,8 @@ def run_loop(source, plan, reporter, *, is_replay: bool,
                       file=sys.stderr)
 
         pkts = decode_dwell(name, freq, iq, source.sample_rate, source.offset_hz,
-                            keep_invalid=reporter.keep_invalid)
+                            keep_invalid=reporter.keep_invalid,
+                            max_correct=max_correct)
         for pkt in pkts:
             reporter.report(pkt)
         plan.record_result(name, sum(1 for p in pkts if p.valid), time.time())
@@ -194,7 +201,8 @@ def cmd_run(args) -> int:
     try:
         run_loop(source, plan, reporter, is_replay=bool(args.replay),
                  save_active_dir=args.save_active,
-                 activity_threshold=args.activity_threshold)
+                 activity_threshold=args.activity_threshold,
+                 max_correct=args.bch_correct)
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
     finally:

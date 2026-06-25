@@ -89,15 +89,73 @@ def compute_checkbits(data_block: str) -> str:
     return xor(checkbits(reverse(data_block), GENERATOR), CIPHER_KEY)
 
 
+# --- BCH error correction (syndrome decoding) --------------------------------
+# The 63-bit codeword W = reverse(data_block) ++ (checkbits XOR CIPHER_KEY) is
+# divisible by GENERATOR for a clean frame. We can therefore *correct* up to a
+# few bit errors via classic syndrome decoding instead of only pass/fail. The
+# generator gives an 18-bit syndrome; precomputed single- and double-error
+# syndrome tables let us locate up to 3 errors in O(63). Default correction is
+# capped (see DEFAULT_MAX_CORRECT) to bound false positives: a frame found only
+# via exact sync + heavy correction could be a coincidence, so corrections are
+# always recorded on the Packet (`corrected`) so callers can weigh them.
+
+_GEN_INT = int(GENERATOR, 2)            # degree 18
+DEFAULT_MAX_CORRECT = 2
+
+
+def _polymod(w: int) -> int:
+    for i in range(FRAME_LEN - 1, CHECKBITS_LEN - 1, -1):
+        if (w >> i) & 1:
+            w ^= _GEN_INT << (i - CHECKBITS_LEN)
+    return w
+
+
+_SYN = [_polymod(1 << p) for p in range(FRAME_LEN)]
+_SYN_POS = {s: i for i, s in enumerate(_SYN)}
+_SYN_PAIR: dict[int, tuple[int, int]] = {}
+for _i in range(FRAME_LEN):
+    for _j in range(_i + 1, FRAME_LEN):
+        _SYN_PAIR.setdefault(_SYN[_i] ^ _SYN[_j], (_i, _j))
+
+
+def _data_from_W(W: int) -> str:
+    s = format(W, "0%db" % FRAME_LEN)
+    return s[:DATA_BLOCK_LEN][::-1]
+
+
+def correct_frame(data_block: str, checkbits_rx: str,
+                  max_errors: int = DEFAULT_MAX_CORRECT):
+    """Try to BCH-correct a frame. Return (corrected_data_block, n_errors) or
+    (None, None) if the syndrome needs more than `max_errors` bit flips."""
+    W = int(reverse(data_block) + xor(checkbits_rx, CIPHER_KEY), 2)
+    s = _polymod(W)
+    if s == 0:
+        return data_block, 0
+    if max_errors >= 1 and s in _SYN_POS:
+        return _data_from_W(W ^ (1 << _SYN_POS[s])), 1
+    if max_errors >= 2 and s in _SYN_PAIR:
+        i, j = _SYN_PAIR[s]
+        return _data_from_W(W ^ (1 << i) ^ (1 << j)), 2
+    if max_errors >= 3:
+        for p in range(FRAME_LEN):
+            r = s ^ _SYN[p]
+            if r in _SYN_PAIR:
+                i, j = _SYN_PAIR[r]
+                if p not in (i, j):
+                    return _data_from_W(W ^ (1 << p) ^ (1 << i) ^ (1 << j)), 3
+    return None, None
+
+
 # --- Decoded packet -----------------------------------------------------------
 
 @dataclass
 class Packet:
-    source: str                 # "EOT" or "HOT"
+    source: str                 # "EOT", "HOT", or "DPU"
     freq_hz: int
-    valid: bool                 # BCH check passed
-    data_block: str             # raw 45-bit data block
+    valid: bool                 # BCH check passed (possibly after correction)
+    data_block: str             # 45-bit data block (corrected if `corrected` > 0)
     checkbits_rx: str           # raw 18 received check bits
+    corrected: int = 0          # number of BCH-corrected bit errors (0 = clean)
     unit_addr: Optional[int] = None
     pressure: Optional[int] = None          # psig
     batt_charge_pct: Optional[int] = None
@@ -116,9 +174,23 @@ def _rev_int(block: str, span: tuple[int, int]) -> int:
     return int(block[span[0]:span[1]][::-1], 2)
 
 
-def decode_eot(data_block: str, checkbits_rx: str, freq_hz: int) -> Packet:
-    """Decode a 45-bit EOT data block + 18 received check bits into a Packet."""
-    valid = compute_checkbits(data_block) == checkbits_rx
+def decode_eot(data_block: str, checkbits_rx: str, freq_hz: int,
+               max_correct: int = DEFAULT_MAX_CORRECT) -> Packet:
+    """Decode a 45-bit EOT data block + 18 received check bits into a Packet.
+
+    If the raw BCH check fails, attempt to correct up to `max_correct` bit errors
+    (0 disables). Decoded fields come from the corrected data block; `corrected`
+    records how many bits were flipped.
+    """
+    corrected = 0
+    if compute_checkbits(data_block) == checkbits_rx:
+        valid = True
+    else:
+        cdata, n = correct_frame(data_block, checkbits_rx, max_correct)
+        if cdata is not None:
+            data_block, corrected, valid = cdata, n, True
+        else:
+            valid = False
 
     batt_cond_bits = data_block[F_BATT_COND[0]:F_BATT_COND[1]][::-1]
     message_type = data_block[F_MESSAGE_TYPE[0]:F_MESSAGE_TYPE[1]]
@@ -135,6 +207,7 @@ def decode_eot(data_block: str, checkbits_rx: str, freq_hz: int) -> Packet:
         valid=valid,
         data_block=data_block,
         checkbits_rx=checkbits_rx,
+        corrected=corrected,
         unit_addr=_rev_int(data_block, F_UNIT_ADDR),
         pressure=_rev_int(data_block, F_PRESSURE),
         batt_charge_pct=int(_rev_int(data_block, F_BATT_CHARGE) / 127 * 100),
@@ -149,39 +222,51 @@ def decode_eot(data_block: str, checkbits_rx: str, freq_hz: int) -> Packet:
     )
 
 
-def decode_hot(data_block: str, checkbits_rx: str, freq_hz: int) -> Packet:
+def decode_hot(data_block: str, checkbits_rx: str, freq_hz: int,
+               max_correct: int = DEFAULT_MAX_CORRECT) -> Packet:
     """Decode a Head-of-Train frame.
 
-    HOT (loco->rear) uses the same 1200-baud FFSK, sync, and 45+18 framing, but
-    its data-block field semantics (arm/comm-test/emergency commands) are not as
-    well documented as EOT. We BCH-validate with the same routine and surface the
+    HOT (loco->rear) uses the same 1200-baud FFSK, sync, 45+18 framing, and BCH,
+    but its data-block field semantics (arm/comm-test/emergency commands) are not
+    as well documented as EOT. We validate (with correction) and surface the
     message type + raw bits; richer field mapping is intentionally deferred until
-    we have real HOT captures to characterize against (see plan: "empirically
-    characterize"). Provisional, but honest about what we don't yet know.
+    we have real HOT captures to characterize against. Provisional, but honest.
     """
-    valid = compute_checkbits(data_block) == checkbits_rx
-    message_type = data_block[F_MESSAGE_TYPE[0]:F_MESSAGE_TYPE[1]]
+    corrected = 0
+    if compute_checkbits(data_block) == checkbits_rx:
+        valid = True
+    else:
+        cdata, n = correct_frame(data_block, checkbits_rx, max_correct)
+        if cdata is not None:
+            data_block, corrected, valid = cdata, n, True
+        else:
+            valid = False
     return Packet(
         source="HOT",
         freq_hz=freq_hz,
         valid=valid,
         data_block=data_block,
         checkbits_rx=checkbits_rx,
-        message_type=message_type,
+        corrected=corrected,
+        message_type=data_block[F_MESSAGE_TYPE[0]:F_MESSAGE_TYPE[1]],
         fields={"raw_data_block": data_block},
     )
 
 
 # --- Frame search -------------------------------------------------------------
 
-def find_frames(bits: str, freq_hz: int, source: str = "EOT") -> Iterator[Packet]:
+_DECODERS = {"HOT": decode_hot, "EOT": decode_eot}
+
+
+def find_frames(bits: str, freq_hz: int, source: str = "EOT",
+                max_correct: int = DEFAULT_MAX_CORRECT) -> Iterator[Packet]:
     """Yield a Packet for every sync occurrence followed by a full frame.
 
     Scans `bits` for SYNC and, where enough bits follow, decodes the 45-bit data
-    block + 18 check bits. Both valid and invalid (failed-BCH) packets are
-    yielded; callers decide whether to keep invalid ones.
+    block + 18 check bits (BCH-correcting up to `max_correct` errors). Both valid
+    and invalid packets are yielded; callers decide whether to keep invalid ones.
     """
-    decoder = decode_hot if source == "HOT" else decode_eot
+    decoder = _DECODERS.get(source, decode_eot)
     start = 0
     while True:
         idx = bits.find(SYNC, start)
@@ -192,7 +277,7 @@ def find_frames(bits: str, freq_hz: int, source: str = "EOT") -> Iterator[Packet
             return
         data_block = bits[data_start:data_start + DATA_BLOCK_LEN]
         checkbits_rx = bits[data_start + DATA_BLOCK_LEN:data_start + FRAME_LEN]
-        yield decoder(data_block, checkbits_rx, freq_hz)
+        yield decoder(data_block, checkbits_rx, freq_hz, max_correct)
         # Advance past this sync; overlapping syncs are implausible.
         start = idx + 1
 

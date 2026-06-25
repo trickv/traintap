@@ -34,12 +34,13 @@ def test_arm_status_from_message_type():
     assert armed.arm_status == "Armed"
 
 
-def test_single_bit_error_fails_bch():
+def test_single_bit_error_fails_raw_bch():
     bits = frame.encode_eot(unit_addr=999, pressure=42)
     # flip one bit inside the data block (after the 17-bit sync)
     flip = len(frame.SYNC) + 20
     corrupt = bits[:flip] + ("1" if bits[flip] == "0" else "0") + bits[flip + 1:]
-    p = next(frame.find_frames(corrupt, 457_937_500))
+    # with correction OFF, a single-bit error must fail the raw BCH check
+    p = next(frame.find_frames(corrupt, 457_937_500, max_correct=0))
     assert not p.valid
 
 
@@ -50,6 +51,46 @@ def test_pressure_and_address_extremes():
     assert p.valid
     assert p.unit_addr == (1 << 17) - 1
     assert p.pressure == 127
+
+
+def _flip(bits, positions):
+    b = list(bits)
+    for p in positions:
+        b[p] = "1" if b[p] == "0" else "0"
+    return "".join(b)
+
+
+def test_bch_corrects_up_to_3_errors():
+    base = frame.encode_eot(unit_addr=45678, pressure=92, with_sync=False)
+    data, par = base[:frame.DATA_BLOCK_LEN], base[frame.DATA_BLOCK_LEN:]
+    assert frame.correct_frame(data, par, 3) == (data, 0)
+    for t in (1, 2, 3):
+        corrupt = _flip(base, range(0, t * 7, 7))  # spread t flips across the frame
+        cd, par2 = corrupt[:frame.DATA_BLOCK_LEN], corrupt[frame.DATA_BLOCK_LEN:]
+        rec, n = frame.correct_frame(cd, par2, 3)
+        assert rec == data and n == t
+
+
+def test_decode_eot_recovers_corrupted_frame():
+    bits = frame.encode_eot(unit_addr=12345, pressure=78, motion=1)
+    flip = len(frame.SYNC) + 20
+    corrupt = _flip(bits, [flip])
+    p = next(frame.find_frames(corrupt, 457_937_500, max_correct=2))
+    assert p.valid and p.corrected == 1
+    assert p.unit_addr == 12345 and p.pressure == 78 and p.motion == 1
+
+
+def test_correction_disabled_and_overflow():
+    bits = frame.encode_eot(unit_addr=999, pressure=42)
+    one = _flip(bits, [len(frame.SYNC) + 20])
+    # correction disabled -> invalid
+    assert not next(frame.find_frames(one, 1, max_correct=0)).valid
+    # too many errors -> uncorrectable
+    many = _flip(bits, [len(frame.SYNC) + k for k in (1, 5, 9, 13, 17)])
+    cd = many[len(frame.SYNC):len(frame.SYNC) + frame.DATA_BLOCK_LEN]
+    cb = many[len(frame.SYNC) + frame.DATA_BLOCK_LEN:
+              len(frame.SYNC) + frame.FRAME_LEN]
+    assert frame.correct_frame(cd, cb, 3) == (None, None)
 
 
 def test_compute_checkbits_length():

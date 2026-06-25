@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from .frame import Packet
 
 CSV_COLUMNS = [
-    "timestamp", "epoch", "source", "freq_hz", "valid", "unit_addr",
+    "timestamp", "epoch", "source", "freq_hz", "valid", "corrected", "unit_addr",
     "pressure_psig", "batt_charge_pct", "batt_cond", "message_type",
     "arm_status", "motion", "marker_light", "turbine", "valve_ckt",
     "data_block", "checkbits_rx",
@@ -26,6 +26,7 @@ def _row(pkt: Packet, epoch: float) -> dict:
         "source": pkt.source,
         "freq_hz": pkt.freq_hz,
         "valid": int(pkt.valid),
+        "corrected": pkt.corrected,
         "unit_addr": "" if pkt.unit_addr is None else pkt.unit_addr,
         "pressure_psig": "" if pkt.pressure is None else pkt.pressure,
         "batt_charge_pct": "" if pkt.batt_charge_pct is None else pkt.batt_charge_pct,
@@ -44,6 +45,7 @@ def _row(pkt: Packet, epoch: float) -> dict:
 def format_console(pkt: Packet, epoch: float) -> str:
     ts = time.strftime("%H:%M:%S", time.localtime(epoch))
     mhz = pkt.freq_hz / 1e6
+    fec = f" ~{pkt.corrected}b" if pkt.corrected else ""   # BCH-corrected marker
     if pkt.source == "EOT":
         flags = []
         if pkt.motion:
@@ -57,8 +59,9 @@ def format_console(pkt: Packet, epoch: float) -> str:
         tail = " ".join(flags)
         return (f"{ts} EOT {mhz:.4f}  unit {pkt.unit_addr:<7} "
                 f"{pkt.pressure:>3} psig  batt {pkt.batt_cond}/{pkt.batt_charge_pct}%"
-                + (f"  [{tail}]" if tail else ""))
-    return f"{ts} HOT {mhz:.4f}  msg-type {pkt.message_type}  (data {pkt.data_block})"
+                + (f"  [{tail}]" if tail else "") + fec)
+    return (f"{ts} {pkt.source} {mhz:.4f}  msg-type {pkt.message_type}"
+            f"  (data {pkt.data_block}){fec}")
 
 
 @dataclass

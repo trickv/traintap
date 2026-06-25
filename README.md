@@ -120,13 +120,16 @@ Record real I/Q while a train passes, then replay it as a regression fixture.
 | `--ppm` | crystal frequency correction |
 | `--offset` | tuning offset below channel to dodge the DC spike (default 250 kHz) |
 | `--csv FILE` | append decoded packets (CSV, header on create) |
+| `--bch-correct N` | BCH-correct up to N bit errors/frame (`0` = off; default 2) |
 | `--dedupe S` | suppress repeat console lines per unit for S seconds (`0` = off) |
 | `--stats-interval S` | live summary cadence (`0` = off) |
 | `--keep-invalid` | also show BCH-failed packets (debugging) |
 
 ## Status & roadmap
 
-- **EOT** decoding is complete and BCH-validated.
+- **EOT** decoding is complete and BCH-validated, with syndrome-based error
+  correction (up to 3 bit errors; `--bch-correct`, default 2). Corrected packets
+  are flagged with their correction count in the console (`~Nb`) and CSV.
 - **HOT** shares the front end and BCH check; its command-message field semantics
   are provisional pending real captures (`--record` to help characterize).
 - Future: simultaneous EOT+HOT via a second receiver; DPU (457.9250 MHz) as a
