@@ -18,6 +18,30 @@ CSV_COLUMNS = [
 ]
 
 
+def _open_append_csv(path: str, columns: list[str]):
+    """Open `path` for append with a header matching `columns`.
+
+    If an existing file's header differs (e.g. a column was added between runs),
+    archive it to `path.N` and start fresh — otherwise new rows would be appended
+    under a mismatched header and silently misalign the CSV.
+    """
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        with open(path, newline="") as f:
+            header = f.readline().rstrip("\r\n").split(",")
+        if header != columns:
+            i = 1
+            while os.path.exists(f"{path}.{i}"):
+                i += 1
+            os.rename(path, f"{path}.{i}")
+    new = not os.path.exists(path) or os.path.getsize(path) == 0
+    fh = open(path, "a", newline="")
+    writer = csv.DictWriter(fh, fieldnames=columns)
+    if new:
+        writer.writeheader()
+        fh.flush()
+    return fh, writer
+
+
 def _row(pkt: Packet, epoch: float) -> dict:
     return {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(epoch))
@@ -98,12 +122,8 @@ class PassTracker:
 
     def __post_init__(self):
         if self.csv_path:
-            new = not os.path.exists(self.csv_path) or os.path.getsize(self.csv_path) == 0
-            self._csv_file = open(self.csv_path, "a", newline="")
-            self._csv_writer = csv.DictWriter(self._csv_file, fieldnames=PASS_CSV_COLUMNS)
-            if new:
-                self._csv_writer.writeheader()
-                self._csv_file.flush()
+            self._csv_file, self._csv_writer = _open_append_csv(
+                self.csv_path, PASS_CSV_COLUMNS)
 
     def add(self, pkt: Packet, epoch: float) -> None:
         if self._members and (epoch - self._last) > self.gap:
@@ -179,12 +199,7 @@ class Reporter:
 
     def __post_init__(self):
         if self.csv_path:
-            new = not os.path.exists(self.csv_path) or os.path.getsize(self.csv_path) == 0
-            self._csv_file = open(self.csv_path, "a", newline="")
-            self._csv_writer = csv.DictWriter(self._csv_file, fieldnames=CSV_COLUMNS)
-            if new:
-                self._csv_writer.writeheader()
-                self._csv_file.flush()
+            self._csv_file, self._csv_writer = _open_append_csv(self.csv_path, CSV_COLUMNS)
         self._passes = PassTracker(gap=self.pass_gap, csv_path=self.passes_csv,
                                    console=self.console)
 

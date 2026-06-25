@@ -2,7 +2,18 @@
 import csv
 
 from traintap.frame import Packet
-from traintap.output import PassTracker
+from traintap.output import PassTracker, _open_append_csv
+
+
+def test_csv_schema_change_archives_old(tmp_path):
+    p = tmp_path / "x.csv"
+    f, w = _open_append_csv(str(p), ["a", "b"])
+    w.writerow({"a": 1, "b": 2}); f.close()
+    # reopening with a changed schema must archive the old file, not misalign it
+    f2, _ = _open_append_csv(str(p), ["a", "b", "c"])
+    f2.close()
+    assert (tmp_path / "x.csv.1").exists()
+    assert open(p).readline().strip() == "a,b,c"
 
 
 def _pkt(source, unit):
