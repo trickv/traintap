@@ -93,6 +93,14 @@ def test_correction_disabled_and_overflow():
     assert frame.correct_frame(cd, cb, 3) == (None, None)
 
 
+def test_dpu_uses_shared_framing():
+    # DPU shares the AAR framing/BCH; decoded via the same path, relabeled.
+    bits = frame.encode_eot(unit_addr=54321, pressure=64)
+    p = next(frame.find_frames(bits, frame.DPU_FREQ_HZ if hasattr(frame, "DPU_FREQ_HZ")
+                               else 457_925_000, source="DPU"))
+    assert p.source == "DPU" and p.valid and p.unit_addr == 54321
+
+
 def test_compute_checkbits_length():
     bits = frame.encode_eot(unit_addr=1, pressure=1)
     data = bits[len(frame.SYNC):len(frame.SYNC) + frame.DATA_BLOCK_LEN]

@@ -255,7 +255,22 @@ def decode_hot(data_block: str, checkbits_rx: str, freq_hz: int,
 
 # --- Frame search -------------------------------------------------------------
 
-_DECODERS = {"HOT": decode_hot, "EOT": decode_eot}
+def decode_dpu(data_block: str, checkbits_rx: str, freq_hz: int,
+               max_correct: int = DEFAULT_MAX_CORRECT) -> Packet:
+    """Decode a Distributed-Power (DPU, 457.9250 MHz) frame.
+
+    DPU is part of the same AAR S-9152 telemetry family as EOT (same 1200-baud
+    FFSK, sync, 45+18 framing, and BCH), so we decode it with the EOT field
+    layout and relabel the source. The unit address and frame validity are the
+    reliable bits; the EOT-specific fields (pressure, marker, etc.) are
+    PROVISIONAL for DPU pending a clean live capture to confirm the layout.
+    """
+    pkt = decode_eot(data_block, checkbits_rx, freq_hz, max_correct)
+    pkt.source = "DPU"
+    return pkt
+
+
+_DECODERS = {"HOT": decode_hot, "DPU": decode_dpu, "EOT": decode_eot}
 
 
 def find_frames(bits: str, freq_hz: int, source: str = "EOT",

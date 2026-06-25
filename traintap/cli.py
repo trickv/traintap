@@ -7,7 +7,7 @@ import os
 import sys
 import time
 
-from . import EOT_FREQ_HZ, HOT_FREQ_HZ, __version__
+from . import DPU_FREQ_HZ, EOT_FREQ_HZ, HOT_FREQ_HZ, __version__
 from .dsp import DEFAULT_OFFSET_HZ, channel_activity_db, iq_to_bits, synthesize_iq
 from .frame import DEFAULT_MAX_CORRECT, Packet, encode_eot, find_frames
 from .output import Reporter
@@ -50,6 +50,8 @@ def _build_parser() -> argparse.ArgumentParser:
     s.add_argument("--mode", choices=["scan", "eot", "hot"], default="scan")
     s.add_argument("--eot-dwell", type=float, default=4.0)
     s.add_argument("--hot-dwell", type=float, default=1.0)
+    s.add_argument("--no-dpu", dest="dpu", action="store_false",
+                   help="don't also decode DPU (457.9250) from the EOT capture")
 
     o = p.add_argument_group("output")
     o.add_argument("--csv", help="append decoded packets to this CSV file")
@@ -149,7 +151,8 @@ def cmd_record(args) -> int:
 def run_loop(source, plan, reporter, *, is_replay: bool,
              save_active_dir: str | None = None,
              activity_threshold: float = 6.0,
-             max_correct: int = DEFAULT_MAX_CORRECT) -> None:
+             max_correct: int = DEFAULT_MAX_CORRECT,
+             decode_dpu_too: bool = True) -> None:
     from .capture import record_iq
     if save_active_dir:
         os.makedirs(save_active_dir, exist_ok=True)
@@ -175,9 +178,17 @@ def run_loop(source, plan, reporter, *, is_replay: bool,
         pkts = decode_dwell(name, freq, iq, source.sample_rate, source.offset_hz,
                             keep_invalid=reporter.keep_invalid,
                             max_correct=max_correct)
+        eot_valid = sum(1 for p in pkts if p.valid)
+        # DPU (457.9250) sits 12.5 kHz below EOT, inside the same capture -- decode
+        # it from the same I/Q at the DPU offset, no retuning.
+        if decode_dpu_too and name == "EOT":
+            dpu_off = source.offset_hz + (DPU_FREQ_HZ - EOT_FREQ_HZ)
+            pkts += decode_dwell("DPU", DPU_FREQ_HZ, iq, source.sample_rate,
+                                 dpu_off, keep_invalid=reporter.keep_invalid,
+                                 max_correct=max_correct)
         for pkt in pkts:
             reporter.report(pkt)
-        plan.record_result(name, sum(1 for p in pkts if p.valid), time.time())
+        plan.record_result(name, eot_valid, time.time())
         if is_replay and source.exhausted():
             break
 
@@ -202,7 +213,8 @@ def cmd_run(args) -> int:
         run_loop(source, plan, reporter, is_replay=bool(args.replay),
                  save_active_dir=args.save_active,
                  activity_threshold=args.activity_threshold,
-                 max_correct=args.bch_correct)
+                 max_correct=args.bch_correct,
+                 decode_dpu_too=args.dpu)
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
     finally:

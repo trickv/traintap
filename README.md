@@ -26,6 +26,13 @@ one process. Only BCH-valid packets are reported, so output is trustworthy.
 |---|---|---|---|
 | **EOT** | 457.9375 MHz | rear → loco | frequent telemetry (the main prize) |
 | **HOT** | 452.9375 MHz | loco → rear | infrequent commands (arm, comm-test, emergency) |
+| **DPU** | 457.9250 MHz | distributed power | mid-train loco telemetry (decoded alongside EOT) |
+
+Because DPU is only 12.5 kHz from EOT, it falls inside the same capture — traintap
+demodulates it from the same I/Q at a second offset (no retuning), so you get DPU
+for free whenever listening for EOT. (Disable with `--no-dpu`.) DPU shares EOT's
+AAR framing/BCH; its non-address field semantics are provisional pending a clean
+live capture.
 
 Modulation is 1200-baud FFSK in an ~8 kHz NFM channel (mark 1200 Hz, space
 1800 Hz after FM demod).
@@ -132,8 +139,9 @@ Record real I/Q while a train passes, then replay it as a regression fixture.
   are flagged with their correction count in the console (`~Nb`) and CSV.
 - **HOT** shares the front end and BCH check; its command-message field semantics
   are provisional pending real captures (`--record` to help characterize).
-- Future: simultaneous EOT+HOT via a second receiver; DPU (457.9250 MHz) as a
-  third scan channel.
+- **DPU** (457.9250) is decoded from the same EOT capture; field semantics beyond
+  the unit address are provisional pending a clean live DPU capture to confirm.
+- Future: simultaneous EOT+HOT via a second receiver.
 
 ## Credits
 
