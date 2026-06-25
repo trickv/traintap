@@ -146,7 +146,11 @@ Record real I/Q while a train passes, then replay it as a regression fixture.
 
 - **EOT** decoding is complete and BCH-validated, with syndrome-based error
   correction (up to 3 bit errors; `--bch-correct`, default 2). Corrected packets
-  are flagged with their correction count in the console (`~Nb`) and CSV.
+  are flagged with their correction count in the console (`~Nb`) and CSV. To keep
+  correction from accepting noise, a *corrected* packet is only emitted once
+  **corroborated** — the same unit also seen clean, or repeated within a pass;
+  isolated corrected frames are dropped. Uncorrected (exact-BCH) packets are
+  trusted immediately.
 - **HOT** shares the front end and BCH check; its command-message field semantics
   are provisional pending real captures (`--record` to help characterize).
 - **DPU** (457.9250) is decoded from the same EOT capture; field semantics beyond

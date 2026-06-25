@@ -2,7 +2,53 @@
 import csv
 
 from traintap.frame import Packet
-from traintap.output import PassTracker, _open_append_csv
+from traintap.output import PassTracker, Reporter, _open_append_csv
+
+
+def _epkt(source, unit, corrected=0):
+    return Packet(source=source, freq_hz=457_937_500, valid=True,
+                  data_block="d" + str(unit), checkbits_rx="c",
+                  unit_addr=unit, corrected=corrected)
+
+
+def _rows(path):
+    return list(csv.DictReader(open(path)))
+
+
+def _reporter(path):
+    return Reporter(csv_path=str(path), console=False, dedupe=0, stats_interval=0,
+                    pass_gap=90)
+
+
+def test_uncorrected_emitted_immediately(tmp_path):
+    p = tmp_path / "t.csv"; r = _reporter(p)
+    r.report(_epkt("EOT", 100, corrected=0), 1000.0)
+    r.close()
+    assert [x["unit_addr"] for x in _rows(p)] == ["100"]
+
+
+def test_isolated_corrected_is_dropped(tmp_path):
+    p = tmp_path / "t.csv"; r = _reporter(p)
+    r.report(_epkt("DPU", 555, corrected=2), 1000.0)   # isolated -> pending
+    r.tick(1000.0 + 100)                               # aged past gap -> dropped
+    r.close()
+    assert _rows(p) == []
+
+
+def test_corrected_corroborated_by_clean(tmp_path):
+    p = tmp_path / "t.csv"; r = _reporter(p)
+    r.report(_epkt("EOT", 200, corrected=0), 1000.0)   # clean confirms unit
+    r.report(_epkt("EOT", 200, corrected=1), 1002.0)   # corrected -> accepted
+    r.close()
+    assert len(_rows(p)) == 2
+
+
+def test_corrected_pair_corroborate_each_other(tmp_path):
+    p = tmp_path / "t.csv"; r = _reporter(p)
+    r.report(_epkt("EOT", 300, corrected=2), 1000.0)   # pending
+    r.report(_epkt("EOT", 300, corrected=2), 1003.0)   # repeat -> both emitted
+    r.close()
+    assert len(_rows(p)) == 2
 
 
 def test_csv_schema_change_archives_old(tmp_path):

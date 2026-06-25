@@ -194,8 +194,11 @@ class Reporter:
     _stats: dict = field(default_factory=dict, init=False)
     _total: int = field(default=0, init=False)
     _invalid: int = field(default=0, init=False)
+    _dropped: int = field(default=0, init=False)
     _last_summary: float = field(default=0.0, init=False)
     _passes: object = field(default=None, init=False)
+    _confirmed: dict = field(default_factory=dict, init=False)   # (src,unit) -> epoch
+    _pending: list = field(default_factory=list, init=False)     # (key, pkt, epoch)
 
     def __post_init__(self):
         if self.csv_path:
@@ -204,23 +207,59 @@ class Reporter:
                                    console=self.console)
 
     def report(self, pkt: Packet, epoch: float | None = None) -> None:
-        epoch = time.time() if epoch is None else epoch
-        if not pkt.valid and not self.keep_invalid:
-            self._invalid += 1
-            return
-        self._total += 1
+        """Decide whether to emit a packet.
 
+        Uncorrected packets (exact BCH match -> ~zero false-positive rate) are
+        emitted immediately and confirm their unit. A BCH-corrected packet is
+        only emitted if corroborated -- the same (source, unit) was seen clean
+        within `pass_gap`, or another corrected copy is pending (repetition).
+        Isolated corrected packets stay pending and are dropped on tick(); this
+        is what suppresses BCH false positives (e.g. noise on the DPU channel).
+        """
+        epoch = time.time() if epoch is None else epoch
+        if not pkt.valid:
+            if self.keep_invalid:
+                self._emit(pkt, epoch)
+            else:
+                self._invalid += 1
+            return
+        key = (pkt.source, pkt.unit_addr)
+        if pkt.corrected == 0:
+            self._emit(pkt, epoch)
+            self._confirm(key, epoch)
+        elif key in self._confirmed and epoch - self._confirmed[key] <= self.pass_gap:
+            self._emit(pkt, epoch)
+            self._confirmed[key] = epoch
+        elif any(k == key for k, _, _ in self._pending):
+            self._release_pending(key)            # repetition corroborates
+            self._emit(pkt, epoch)
+            self._confirmed[key] = epoch
+        else:
+            self._pending.append((key, pkt, epoch))
+
+    def _confirm(self, key, epoch: float) -> None:
+        self._confirmed[key] = epoch
+        self._release_pending(key)
+
+    def _release_pending(self, key) -> None:
+        keep = []
+        for k, p, e in self._pending:
+            if k == key:
+                self._emit(p, e)
+            else:
+                keep.append((k, p, e))
+        self._pending = keep
+
+    def _emit(self, pkt: Packet, epoch: float) -> None:
+        self._total += 1
         if self._csv_writer is not None:
             self._csv_writer.writerow(_row(pkt, epoch))
             self._csv_file.flush()
-
         self._passes.add(pkt, epoch)
-
         key = (pkt.source, pkt.unit_addr)
         st = self._stats.setdefault(key, _Stat())
         st.count += 1
         st.last_epoch = epoch
-
         if self.console:
             show = self.dedupe <= 0 or (epoch - st.last_console_epoch) >= self.dedupe
             if show:
@@ -246,16 +285,24 @@ class Reporter:
               + (f"; recent: {recent}" if recent else ""), file=sys.stderr)
 
     def summary(self) -> str:
-        lines = [f"Total valid packets: {self._total}  (BCH-failed dropped: {self._invalid})"]
+        lines = [f"Total packets: {self._total}  (BCH-failed: {self._invalid}, "
+                 f"uncorroborated corrected dropped: {self._dropped})"]
         for (src, addr), st in sorted(self._stats.items(),
                                       key=lambda kv: kv[1].count, reverse=True):
             lines.append(f"  {src} unit {addr}: {st.count} packets")
         return "\n".join(lines)
 
     def tick(self, now: float) -> None:
-        """Flush a completed train pass once the channel goes quiet."""
+        """Flush a completed train pass and drop uncorroborated corrected packets."""
         if self._passes is not None:
             self._passes.tick(now)
+        kept = []
+        for k, p, e in self._pending:
+            if now - e > self.pass_gap:
+                self._dropped += 1           # corrected, never corroborated -> noise
+            else:
+                kept.append((k, p, e))
+        self._pending = kept
 
     def close(self) -> None:
         if self._passes is not None:
