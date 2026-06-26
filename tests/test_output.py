@@ -85,6 +85,18 @@ def test_pass_correlates_eot_and_dpu(tmp_path):
     assert rows[1]["eot_units"] == "55555" and rows[1]["dpu_units"] == ""
 
 
+def test_pass_handles_out_of_order_epochs(tmp_path):
+    # A corroborated corrected packet can be emitted with an older timestamp.
+    path = tmp_path / "p.csv"
+    pt = PassTracker(gap=90, csv_path=str(path), console=False)
+    pt.add(_pkt("EOT", 68777), 1000.0)
+    pt.add(_pkt("EOT", 68777), 938.0)        # released late, older epoch
+    pt.close()
+    row = list(csv.DictReader(open(path)))[0]
+    assert int(row["duration_s"]) >= 0       # never negative
+    assert row["start"] <= row["end"]
+
+
 def test_tick_flushes_idle_pass(tmp_path):
     path = tmp_path / "p.csv"
     pt = PassTracker(gap=60, csv_path=str(path), console=False)

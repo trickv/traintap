@@ -126,14 +126,19 @@ class PassTracker:
                 self.csv_path, PASS_CSV_COLUMNS)
 
     def add(self, pkt: Packet, epoch: float) -> None:
+        # Epochs can arrive slightly out of order: a corroborated corrected packet
+        # is released carrying its original (older) timestamp. Flush only when a
+        # packet lands more than `gap` *after* the latest seen, and track the pass
+        # window with min/max so the duration can never go negative.
         if self._members and (epoch - self._last) > self.gap:
             self.flush()
         if not self._members:
-            self._start = epoch
+            self._start = self._last = epoch
+        self._start = min(self._start, epoch)
+        self._last = max(self._last, epoch)
         d = self._members.setdefault(pkt.source, {})
         u = "?" if pkt.unit_addr is None else pkt.unit_addr
         d[u] = d.get(u, 0) + 1
-        self._last = epoch
 
     def tick(self, now: float) -> None:
         if self._members and (now - self._last) > self.gap:
