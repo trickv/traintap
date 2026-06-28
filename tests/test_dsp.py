@@ -38,6 +38,22 @@ def test_noisy_decode(noise):
     assert valid[0].pressure == 55
 
 
+def test_prune_captures_keeps_newest(tmp_path):
+    import os, time as _t
+    from traintap.cli import _prune_captures
+    paths = []
+    for i in range(5):
+        p = tmp_path / f"active_EOT_{1000+i}.npz"
+        p.write_bytes(b"x")
+        os.utime(p, (1000 + i, 1000 + i))   # ascending mtime
+        paths.append(p)
+    _prune_captures(str(tmp_path), keep=2)
+    remaining = sorted(q.name for q in tmp_path.glob("active_*.npz"))
+    assert remaining == ["active_EOT_1003.npz", "active_EOT_1004.npz"]
+    _prune_captures(str(tmp_path), keep=0)   # 0 = unlimited, no-op
+    assert len(list(tmp_path.glob("active_*.npz"))) == 2
+
+
 def test_pure_noise_yields_no_valid_packets():
     rng = np.random.default_rng(0)
     n = int(FS * 0.2)

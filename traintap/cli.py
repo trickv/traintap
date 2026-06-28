@@ -89,6 +89,9 @@ def _build_parser() -> argparse.ArgumentParser:
                         "present (timestamped .npz) for offline analysis")
     r.add_argument("--activity-threshold", type=float, default=6.0,
                    help="in-channel/guard power ratio (dB) that counts as a carrier")
+    r.add_argument("--save-active-max", type=int, default=200,
+                   help="max raw captures to retain (~32 MB each); oldest pruned "
+                        "so --save-active can't fill the disk (0 = unlimited)")
     r.add_argument("--signal-meter", action="store_true",
                    help="live in-channel signal strength readout (for aiming the "
                         "antenna); peak it on a steady reference via --meter-freq")
@@ -156,12 +159,28 @@ def cmd_record(args) -> int:
     return 0
 
 
+def _prune_captures(dir_path: str, keep: int) -> None:
+    """Keep only the newest `keep` capture files so --save-active can't fill the
+    disk. Validated decodes live in the CSV; raw captures are disposable."""
+    if keep <= 0:
+        return
+    import glob
+    files = sorted(glob.glob(os.path.join(dir_path, "active_*.npz")),
+                   key=os.path.getmtime)
+    for f in files[:-keep]:
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+
+
 def run_loop(source, plan, reporter, *, is_replay: bool,
              save_active_dir: str | None = None,
              activity_threshold: float = 6.0,
              max_correct: int = DEFAULT_MAX_CORRECT,
              decode_dpu_too: bool = True,
-             signal_log=None) -> None:
+             signal_log=None,
+             save_active_max: int = 200) -> None:
     from .capture import record_iq
     if save_active_dir:
         os.makedirs(save_active_dir, exist_ok=True)
@@ -182,9 +201,13 @@ def run_loop(source, plan, reporter, *, is_replay: bool,
             if save_active_dir and act >= activity_threshold:
                 path = os.path.join(save_active_dir,
                                     f"active_{name}_{int(now)}.npz")
-                record_iq(path, iq, source.sample_rate, freq, source.offset_hz)
-                print(f"** carrier on {name} ({act:+.1f} dB) -> saved {path}",
-                      file=sys.stderr)
+                try:  # a save failure (e.g. disk full) must never kill the monitor
+                    record_iq(path, iq, source.sample_rate, freq, source.offset_hz)
+                    print(f"** carrier on {name} ({act:+.1f} dB) -> saved {path}",
+                          file=sys.stderr)
+                    _prune_captures(save_active_dir, save_active_max)
+                except OSError as e:
+                    print(f"capture save failed ({e}); continuing", file=sys.stderr)
 
         pkts = decode_dwell(name, freq, iq, source.sample_rate, source.offset_hz,
                             keep_invalid=reporter.keep_invalid,
@@ -231,7 +254,8 @@ def cmd_run(args) -> int:
                  activity_threshold=args.activity_threshold,
                  max_correct=args.bch_correct,
                  decode_dpu_too=args.dpu,
-                 signal_log=signal_log)
+                 signal_log=signal_log,
+                 save_active_max=args.save_active_max)
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
     finally:
