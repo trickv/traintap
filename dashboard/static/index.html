@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>traintap — train telemetry</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <div id="status" class="status">
+    <span id="light" class="light"></span>
+    <div class="status-text">
+      <div id="status-line">Loading…</div>
+      <div id="status-sub" class="sub"></div>
+    </div>
+  </div>
+  <div class="title">🚂 traintap<span class="sub" id="range-label"></span></div>
+  <div class="ranges">
+    <button data-range="24h" class="active">24h</button>
+    <button data-range="7d">7d</button>
+    <button data-range="all">all</button>
+  </div>
+</header>
+
+<section class="cards">
+  <div class="card"><div class="num" id="c-trains">–</div><div class="lbl">trains</div></div>
+  <div class="card"><div class="num" id="c-units">–</div><div class="lbl">unique units</div></div>
+  <div class="card"><div class="num" id="c-meets">–</div><div class="lbl">meets</div></div>
+  <div class="card"><div class="num" id="c-busiest">–</div><div class="lbl">busiest hour</div></div>
+  <div class="card"><div class="num" id="c-quality">–</div><div class="lbl">clean decode</div></div>
+</section>
+
+<main class="grid">
+  <div class="panel wide"><h2>Trains per hour</h2><canvas id="trainsChart"></canvas></div>
+  <div class="panel wide"><h2>Signal strength — antenna health (peak dB per carrier)</h2><canvas id="signalChart"></canvas></div>
+  <div class="panel"><h2>Source breakdown</h2><canvas id="sourceChart"></canvas></div>
+  <div class="panel"><h2>Decode quality</h2><canvas id="qualityChart"></canvas></div>
+  <div class="panel wide"><h2>Packets per hour (by source)</h2><canvas id="packetsChart"></canvas></div>
+  <div class="panel"><h2>Brake pressure (psig)</h2><canvas id="pressureChart"></canvas></div>
+  <div class="panel"><h2>Activity by hour of day</h2><canvas id="hodChart"></canvas></div>
+  <div class="panel wide">
+    <h2>Recent trains</h2>
+    <table id="recent"><thead><tr>
+      <th>Time</th><th>Unit(s)</th><th>Pkts</th><th>Peak dB</th><th>Dur</th><th>Notes</th>
+    </tr></thead><tbody></tbody></table>
+  </div>
+</main>
+
+<footer>traintap · EOT 457.9375 · DPU 457.9250 · <span id="updated"></span></footer>
+
+<script src="/vendor/chart.umd.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
