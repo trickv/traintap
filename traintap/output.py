@@ -98,6 +98,40 @@ class _Stat:
 PASS_CSV_COLUMNS = ["start", "end", "duration_s", "eot_units", "eot_pkts",
                     "dpu_units", "dpu_pkts", "hot_units", "hot_pkts"]
 
+SIGNAL_CSV_COLUMNS = ["epoch", "timestamp", "freq_hz", "source",
+                      "activity_db", "n_valid"]
+
+
+@dataclass
+class SignalLog:
+    """Append one row per carrier-present dwell: the in-channel signal strength
+    (dB) over time, for judging antenna placement. Independent of decoding —
+    logs even when no packet decodes."""
+
+    path: str | None = None
+    _file: object = field(default=None, init=False)
+    _writer: object = field(default=None, init=False)
+
+    def __post_init__(self):
+        if self.path:
+            self._file, self._writer = _open_append_csv(self.path, SIGNAL_CSV_COLUMNS)
+
+    def log(self, epoch: float, freq_hz: int, source: str,
+            activity_db: float, n_valid: int) -> None:
+        if self._writer is None:
+            return
+        self._writer.writerow({
+            "epoch": f"{epoch:.3f}",
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(epoch)),
+            "freq_hz": freq_hz, "source": source,
+            "activity_db": f"{activity_db:.1f}", "n_valid": n_valid})
+        self._file.flush()
+
+    def close(self) -> None:
+        if self._file is not None:
+            self._file.close()
+            self._file = None
+
 
 @dataclass
 class PassTracker:

@@ -10,7 +10,7 @@ import time
 from . import DPU_FREQ_HZ, EOT_FREQ_HZ, HOT_FREQ_HZ, __version__
 from .dsp import DEFAULT_OFFSET_HZ, channel_activity_db, iq_to_bits, synthesize_iq
 from .frame import DEFAULT_MAX_CORRECT, Packet, encode_eot, find_frames
-from .output import Reporter
+from .output import Reporter, SignalLog
 
 
 def decode_dwell(name: str, freq_hz: int, iq, fs: int, offset_hz: float,
@@ -64,6 +64,9 @@ def _build_parser() -> argparse.ArgumentParser:
                         "with DPU (and HOT) units heard together")
     o.add_argument("--pass-gap", type=float, default=90.0,
                    help="seconds of silence that ends a train pass (default 90)")
+    o.add_argument("--signal-csv", metavar="FILE",
+                   help="log in-channel signal strength (dB) per carrier dwell, "
+                        "for tracking antenna placement / reception over time")
     o.add_argument("--quiet", action="store_true", help="no per-packet console output")
     o.add_argument("--keep-invalid", action="store_true",
                    help="also report BCH-failed packets (debugging)")
@@ -157,7 +160,8 @@ def run_loop(source, plan, reporter, *, is_replay: bool,
              save_active_dir: str | None = None,
              activity_threshold: float = 6.0,
              max_correct: int = DEFAULT_MAX_CORRECT,
-             decode_dpu_too: bool = True) -> None:
+             decode_dpu_too: bool = True,
+             signal_log=None) -> None:
     from .capture import record_iq
     if save_active_dir:
         os.makedirs(save_active_dir, exist_ok=True)
@@ -171,9 +175,11 @@ def run_loop(source, plan, reporter, *, is_replay: bool,
             time.sleep(0.5)
             continue
 
-        if save_active_dir and not is_replay:
+        # In-channel signal strength for save-active and/or the signal log.
+        act = None
+        if (save_active_dir or signal_log is not None) and not is_replay:
             act = channel_activity_db(iq, source.sample_rate, source.offset_hz)
-            if act >= activity_threshold:
+            if save_active_dir and act >= activity_threshold:
                 path = os.path.join(save_active_dir,
                                     f"active_{name}_{int(now)}.npz")
                 record_iq(path, iq, source.sample_rate, freq, source.offset_hz)
@@ -184,6 +190,8 @@ def run_loop(source, plan, reporter, *, is_replay: bool,
                             keep_invalid=reporter.keep_invalid,
                             max_correct=max_correct)
         eot_valid = sum(1 for p in pkts if p.valid)
+        if signal_log is not None and act is not None and act >= activity_threshold:
+            signal_log.log(now, freq, name, act, eot_valid)
         # DPU (457.9250) sits 12.5 kHz below EOT, inside the same capture -- decode
         # it from the same I/Q at the DPU offset, no retuning.
         if decode_dpu_too and name == "EOT":
@@ -216,16 +224,19 @@ def cmd_run(args) -> int:
                         stats_interval=args.stats_interval,
                         console=not args.quiet, keep_invalid=args.keep_invalid,
                         passes_csv=args.passes_csv, pass_gap=args.pass_gap)
+    signal_log = SignalLog(args.signal_csv)
     try:
         run_loop(source, plan, reporter, is_replay=bool(args.replay),
                  save_active_dir=args.save_active,
                  activity_threshold=args.activity_threshold,
                  max_correct=args.bch_correct,
-                 decode_dpu_too=args.dpu)
+                 decode_dpu_too=args.dpu,
+                 signal_log=signal_log)
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
     finally:
         reporter.close()
+        signal_log.close()
         source.close()
         print(reporter.summary(), file=sys.stderr)
     return 0

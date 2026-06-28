@@ -2,7 +2,23 @@
 import csv
 
 from traintap.frame import Packet
-from traintap.output import PassTracker, Reporter, _open_append_csv
+from traintap.output import PassTracker, Reporter, SignalLog, _open_append_csv
+
+
+def test_signal_log_writes_rows(tmp_path):
+    path = tmp_path / "signal.csv"
+    sl = SignalLog(str(path))
+    sl.log(1000.0, 457_937_500, "EOT", 9.4, 2)
+    sl.log(1004.0, 457_937_500, "EOT", 12.1, 0)
+    sl.close()
+    rows = list(csv.DictReader(open(path)))
+    assert len(rows) == 2
+    assert rows[0]["activity_db"] == "9.4" and rows[0]["source"] == "EOT"
+    assert rows[0]["n_valid"] == "2" and rows[1]["n_valid"] == "0"
+
+
+def test_signal_log_noop_without_path():
+    SignalLog(None).log(1.0, 1, "EOT", 5.0, 1)  # must not raise
 
 
 def _epkt(source, unit, corrected=0):
