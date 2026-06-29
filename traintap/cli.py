@@ -47,9 +47,16 @@ def _build_parser() -> argparse.ArgumentParser:
     g.add_argument("--list-devices", action="store_true")
 
     s = p.add_argument_group("scan")
-    s.add_argument("--mode", choices=["scan", "eot", "hot"], default="scan")
+    s.add_argument("--mode", choices=["scan", "eot", "hot", "hotwatch"],
+                   default="scan",
+                   help="hotwatch: watch HOT as an approach trigger, then lock "
+                        "onto EOT/DPU once a train's head end is heard")
     s.add_argument("--eot-dwell", type=float, default=4.0)
     s.add_argument("--hot-dwell", type=float, default=1.0)
+    s.add_argument("--hot-fraction", type=float, default=0.7,
+                   help="hotwatch: idle fraction of time spent on HOT (default 0.7)")
+    s.add_argument("--focus-minutes", type=float, default=10.0,
+                   help="hotwatch: minutes to lock onto EOT/DPU after a HOT hit")
     s.add_argument("--no-dpu", dest="dpu", action="store_false",
                    help="don't also decode DPU (457.9250) from the EOT capture")
 
@@ -241,7 +248,8 @@ def cmd_run(args) -> int:
         source = RtlSource(device_index=args.device, sample_rate=args.sample_rate,
                            gain=args.gain, ppm=args.ppm, offset_hz=args.offset).open()
         plan = ScanPlan(mode=args.mode, eot_dwell=args.eot_dwell,
-                        hot_dwell=args.hot_dwell)
+                        hot_dwell=args.hot_dwell, hot_fraction=args.hot_fraction,
+                        focus_minutes=args.focus_minutes)
 
     reporter = Reporter(csv_path=args.csv, dedupe=args.dedupe,
                         stats_interval=args.stats_interval,

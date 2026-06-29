@@ -38,6 +38,48 @@ def test_idle_alternates_more_evenly():
     assert names.count("HOT") >= 3
 
 
+def test_hotwatch_idle_favors_hot_70_30():
+    plan = ScanPlan(mode="hotwatch", eot_dwell=4.0, hot_fraction=0.7)
+    names = []
+    t = 0.0
+    for _ in range(200):
+        name, freq, dwell = plan.next_dwell(t)
+        names.append(name)
+        plan.record_result(name, 0, t)   # no HOT hit -> stays idle
+        t += dwell
+    hot_share = names.count("HOT") / len(names)
+    assert 0.66 <= hot_share <= 0.74      # converges to ~0.70
+
+
+def test_hotwatch_locks_to_eot_after_hot_hit():
+    plan = ScanPlan(mode="hotwatch", eot_dwell=4.0, focus_minutes=10.0)
+    # walk idle until a HOT dwell, then report a HOT packet
+    t = 0.0
+    while True:
+        name, freq, dwell = plan.next_dwell(t)
+        if name == "HOT":
+            plan.record_result("HOT", valid_count=1, now=t)   # train's head end!
+            break
+        plan.record_result(name, 0, t)
+        t += dwell
+    # for the next 10 minutes every dwell must be EOT (chasing the rear)
+    t += 1
+    for _ in range(50):
+        name, freq, dwell = plan.next_dwell(t)
+        assert name == "EOT" and freq == EOT_FREQ_HZ
+        plan.record_result(name, 1, t)
+        t += dwell
+    # after the focus window expires, HOT-watching resumes (within a few dwells)
+    t = plan._focus_until + 1
+    post = []
+    for _ in range(20):
+        name, freq, dwell = plan.next_dwell(t)
+        post.append(name)
+        plan.record_result(name, 0, t)
+        t += dwell
+    assert "HOT" in post
+
+
 def test_hot_linger_on_hit():
     plan = ScanPlan(mode="scan")
     # Force a HOT dwell by exhausting EOT credits.

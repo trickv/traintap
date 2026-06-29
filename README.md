@@ -115,6 +115,13 @@ EOT and dips to HOT periodically. It favors EOT while a train is active and
 lingers on HOT briefly when a HOT packet decodes. Catching *all* HOT requires a
 second receiver (a 2nd RTL-SDR on 452.9375, or a wide SDR + KA9Q-radio).
 
+`--mode hotwatch` is an alternative strategy that treats HOT as an *approach
+warning*: idle, it spends most of its time (`--hot-fraction`, default 70%)
+listening for HOT (the head end), and the moment a HOT packet decodes — meaning a
+train's front is arriving — it locks onto EOT/DPU 100% for `--focus-minutes`
+(default 10) to catch the body and the rear (FRED) as the train finishes passing.
+Best for lines with two-way/armed trains that actually transmit HOT.
+
 ## Install from source (without Docker)
 
 Prefer Docker (above) for the least fuss. To run it natively instead:
@@ -192,7 +199,9 @@ Record real I/Q while a train passes, then replay it as a regression fixture.
 
 | Flag | Meaning |
 |---|---|
-| `--mode {scan,eot,hot}` | channel strategy (default `scan`) |
+| `--mode {scan,eot,hot,hotwatch}` | channel strategy (default `scan`) |
+| `--hot-fraction` | hotwatch: idle share of time on HOT (default 0.7) |
+| `--focus-minutes` | hotwatch: lock onto EOT/DPU for N min after a HOT hit (default 10) |
 | `--eot-dwell` / `--hot-dwell` | seconds per dwell while scanning |
 | `--gain` | `auto` or gain in dB |
 | `--ppm` | crystal frequency correction |

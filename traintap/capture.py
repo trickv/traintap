@@ -143,6 +143,12 @@ class ScanPlan:
     is active (an EOT decoded within `active_window` s); when idle, EOT and HOT
     alternate evenly. A HOT dwell that yields a packet triggers linger (another
     HOT dwell immediately) — HOT bursts cluster.
+
+    mode "hotwatch": HOT as an approach lead-indicator. Idle, it spends
+    `hot_fraction` of the time on HOT (the head end) and the rest on EOT/DPU.
+    A HOT packet means a train's front is here, so it then locks to EOT/DPU 100%
+    for `focus_minutes` to catch the body and the rear (FRED) as it finishes
+    passing, before reverting to the HOT-watching idle split.
     """
 
     mode: str = "scan"
@@ -150,16 +156,34 @@ class ScanPlan:
     hot_dwell: float = 1.0
     active_window: float = 15.0
     active_eot_runs: int = 6
+    hot_fraction: float = 0.7      # hotwatch: idle share of time on HOT
+    focus_minutes: float = 10.0    # hotwatch: EOT/DPU lock-on after a HOT hit
 
     _last_eot_epoch: float = field(default=-1e18, init=False)
     _eot_credits: int = field(default=0, init=False)
     _hot_linger: bool = field(default=False, init=False)
+    _focus_until: float = field(default=-1e18, init=False)
+    _hot_time: float = field(default=0.0, init=False)
+    _eot_time: float = field(default=0.0, init=False)
 
     def next_dwell(self, now: float) -> tuple[str, int, float]:
         if self.mode == "eot":
             return ("EOT", EOT_FREQ_HZ, self.eot_dwell)
         if self.mode == "hot":
             return ("HOT", HOT_FREQ_HZ, self.hot_dwell)
+        if self.mode == "hotwatch":
+            if now < self._focus_until:               # train detected -> chase EOT/DPU
+                return ("EOT", EOT_FREQ_HZ, self.eot_dwell)
+            total = self._hot_time + self._eot_time
+            if total > 1e6:                            # keep the running ratio bounded
+                self._hot_time *= 0.5
+                self._eot_time *= 0.5
+                total *= 0.5
+            if total == 0 or (self._hot_time / total) < self.hot_fraction:
+                self._hot_time += self.eot_dwell
+                return ("HOT", HOT_FREQ_HZ, self.eot_dwell)
+            self._eot_time += self.eot_dwell
+            return ("EOT", EOT_FREQ_HZ, self.eot_dwell)
 
         if self._hot_linger:
             return ("HOT", HOT_FREQ_HZ, self.hot_dwell)
@@ -172,6 +196,11 @@ class ScanPlan:
         return ("HOT", HOT_FREQ_HZ, self.hot_dwell)
 
     def record_result(self, name: str, valid_count: int, now: float) -> None:
+        if self.mode == "hotwatch":
+            # A HOT hit = the head end is here; lock onto EOT/DPU to catch the rest.
+            if name == "HOT" and valid_count > 0:
+                self._focus_until = now + self.focus_minutes * 60.0
+            return
         if name == "EOT":
             if valid_count > 0:
                 self._last_eot_epoch = now
