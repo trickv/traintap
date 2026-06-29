@@ -179,7 +179,13 @@ class ScanPlan:
                 self._hot_time *= 0.5
                 self._eot_time *= 0.5
                 total *= 0.5
-            if total == 0 or (self._hot_time / total) < self.hot_fraction:
+            if self.hot_fraction >= 1.0:          # 100% HOT until a HOT packet
+                take_hot = True
+            elif self.hot_fraction <= 0.0:
+                take_hot = False
+            else:
+                take_hot = total == 0 or (self._hot_time / total) < self.hot_fraction
+            if take_hot:
                 self._hot_time += self.eot_dwell
                 return ("HOT", HOT_FREQ_HZ, self.eot_dwell)
             self._eot_time += self.eot_dwell

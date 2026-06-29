@@ -51,6 +51,22 @@ def test_hotwatch_idle_favors_hot_70_30():
     assert 0.66 <= hot_share <= 0.74      # converges to ~0.70
 
 
+def test_hotwatch_full_hot_until_hit():
+    # --hot-fraction 1.0: 100% HOT until a HOT packet, then EOT focus, then HOT again
+    plan = ScanPlan(mode="hotwatch", eot_dwell=4.0, hot_fraction=1.0,
+                    focus_minutes=10.0)
+    t = 0.0
+    for _ in range(30):                       # idle: must be HOT only
+        name, freq, dwell = plan.next_dwell(t)
+        assert name == "HOT"
+        plan.record_result(name, 0, t)
+        t += dwell
+    plan.record_result("HOT", valid_count=1, now=t)   # got a packet
+    assert plan.next_dwell(t + 1)[0] == "EOT"          # now chase EOT/DPU
+    t = plan._focus_until + 1
+    assert plan.next_dwell(t)[0] == "HOT"              # focus over -> back to HOT
+
+
 def test_hotwatch_locks_to_eot_after_hot_hit():
     plan = ScanPlan(mode="hotwatch", eot_dwell=4.0, focus_minutes=10.0)
     # walk idle until a HOT dwell, then report a HOT packet
