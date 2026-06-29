@@ -9,6 +9,14 @@ S-9152 wireless link. traintap tunes the radio, demodulates the signal natively
 from I/Q, validates every packet against its built-in BCH check code, and logs
 the decoded telemetry to your console and a CSV.
 
+A companion **web dashboard** (FastAPI + Chart.js) shows live status — a
+red/green "train near" light, trains/hour, signal strength for antenna tuning,
+source (EOT/HOT/DPU) and decode-quality breakdowns, and a recent-trains table.
+
+[![traintap dashboard — live status and charts](docs/dashboard-preview.jpeg)](docs/dashboard-full.jpeg)
+
+*(Click the image for the full-length dashboard.)*
+
 ## How it works
 
 ```
