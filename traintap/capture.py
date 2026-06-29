@@ -151,7 +151,7 @@ class ScanPlan:
     passing, before reverting to the HOT-watching idle split.
     """
 
-    mode: str = "scan"
+    mode: str = "eot"
     eot_dwell: float = 4.0
     hot_dwell: float = 1.0
     active_window: float = 15.0

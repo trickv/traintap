@@ -48,9 +48,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     s = p.add_argument_group("scan")
     s.add_argument("--mode", choices=["scan", "eot", "hot", "hotwatch"],
-                   default="scan",
-                   help="hotwatch: watch HOT as an approach trigger, then lock "
-                        "onto EOT/DPU once a train's head end is heard")
+                   default="eot",
+                   help="default 'eot' parks on EOT 457.9375 and decodes DPU from "
+                        "the same capture; 'scan' also time-shares HOT; 'hotwatch' "
+                        "watches HOT as an approach trigger (see README — HOT may "
+                        "not be present on your line)")
     s.add_argument("--eot-dwell", type=float, default=4.0)
     s.add_argument("--hot-dwell", type=float, default=1.0)
     s.add_argument("--hot-fraction", type=float, default=0.7,

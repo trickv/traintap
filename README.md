@@ -167,11 +167,12 @@ Verify the radio: `rtl_test -t`, then `traintap --list-devices`.
 ## Usage
 
 ```sh
-# Scan EOT+HOT, log to CSV, suppress repeat console lines within 30 s per unit:
-traintap --mode scan --csv trains.csv
+# Default: park on EOT (457.9375) and decode DPU from the same capture.
+# This is the simplest, most productive mode and never misses the frequent EOT.
+traintap --csv trains.csv
 
-# EOT only (simplest, never misses the frequent telemetry):
-traintap --mode eot
+# Also time-share to HOT (452.9375) to hunt for head-end packets (see HOT note):
+traintap --mode scan --csv trains.csv
 
 # Tuning aids:
 traintap --gain 40 --ppm 12         # fixed gain (dB) and freq correction
@@ -179,6 +180,17 @@ traintap --gain 40 --ppm 12         # fixed gain (dB) and freq correction
 # No hardware needed — prove the DSP+decoder work:
 traintap --selftest
 ```
+
+> **Note on HOT:** the default is EOT/DPU only, on purpose. The rear EOT chirps
+> telemetry constantly; the head-end **HOT** transmitter only speaks when a train
+> is **two-way-armed** (arming, comm-test, emergency). On the author's line, HOT
+> appears **not to be present at all** — many trains run one-way and/or use
+> Distributed Power instead of two-way EOT — so chasing HOT just costs EOT
+> coverage. **Your mileage may vary:** other lines/railroads do transmit HOT. If
+> you want to hunt for it, use `--mode scan` (time-shares HOT) or `--mode
+> hotwatch` (watches HOT as a train-approach trigger), and watch for *clean*
+> decodes on 452.9375 — a strong adjacent signal on **452.9250** is a different,
+> non-railroad emitter, not HOT.
 
 Console output (one line per packet, deduped):
 
@@ -199,7 +211,7 @@ Record real I/Q while a train passes, then replay it as a regression fixture.
 
 | Flag | Meaning |
 |---|---|
-| `--mode {scan,eot,hot,hotwatch}` | channel strategy (default `scan`) |
+| `--mode {scan,eot,hot,hotwatch}` | channel strategy (default `eot` = EOT+DPU; see HOT note) |
 | `--hot-fraction` | hotwatch: idle share of time on HOT (default 0.7) |
 | `--focus-minutes` | hotwatch: lock onto EOT/DPU for N min after a HOT hit (default 10) |
 | `--eot-dwell` / `--hot-dwell` | seconds per dwell while scanning |
