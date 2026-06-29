@@ -1,0 +1,12 @@
+.venv/
+data/
+captures/
+docs/
+.git/
+__pycache__/
+*.pyc
+*.csv
+*.csv.*
+*.npz
+monitor.log
+.pytest_cache/

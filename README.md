@@ -17,6 +17,59 @@ source (EOT/HOT/DPU) and decode-quality breakdowns, and a recent-trains table.
 
 *(Click the image for the full-length dashboard.)*
 
+## Quick start — do I have EOT signals near me?
+
+You need: an **RTL-SDR**, a **UHF antenna** (a 70 cm ham whip is plenty — see
+[Antenna & frequencies](#antenna--frequencies)), and **Docker**. Plug the SDR in,
+then:
+
+```sh
+git clone https://github.com/trickv/traintap
+cd traintap
+docker compose up
+```
+
+That builds and starts the decoder (scanning EOT, decoding DPU too) **and** the
+dashboard at **http://localhost:8000**. When a freight train passes, decoded
+packets appear in the logs and on the dashboard within seconds.
+
+Just want a quick console check, no dashboard?
+
+```sh
+docker run --rm --device=/dev/bus/usb ghcr.io/trickv/traintap --mode eot
+```
+
+No SDR handy but want to see it run? This decodes a synthetic packet end-to-end,
+no hardware:
+
+```sh
+docker run --rm ghcr.io/trickv/traintap --selftest
+```
+
+Dongle not found? Make sure it's plugged in; if the `devices:` mapping doesn't
+work on your system, set `privileged: true` on the `traintap` service in
+`docker-compose.yml`. (The DVB TV driver is auto-detached at runtime, so you
+normally don't need to blacklist anything.) Only one program can use the SDR at
+a time.
+
+## Antenna & frequencies
+
+EOT/HOT/DPU are North American AAR S-9152 signals in the UHF **70 cm** band:
+
+| Link | Frequency | Notes |
+|---|---|---|
+| **EOT** (rear → loco) | **457.9375 MHz** | frequent telemetry — the main signal |
+| **HOT** (loco → rear) | **452.9375 MHz** | infrequent commands |
+| **DPU** (distributed power) | **457.9250 MHz** | mid-train locos; decoded alongside EOT |
+
+A **70 cm / UHF antenna is good enough** — a 70 cm ham whip, a UHF scanner
+antenna, or the RTL-SDR dipole kit with each element set to **~16 cm** (a quarter
+wave at 458 MHz). Mount it **vertically** (these signals are vertically
+polarized), with as clear a path toward the tracks as you can manage. UHF falls
+off fast indoors and especially in basements, so a window or outdoor placement
+helps a lot. You don't need to be trackside — within a few hundred meters of a
+passing train is plenty.
+
 ## How it works
 
 ```
@@ -62,7 +115,9 @@ EOT and dips to HOT periodically. It favors EOT while a train is active and
 lingers on HOT briefly when a HOT packet decodes. Catching *all* HOT requires a
 second receiver (a 2nd RTL-SDR on 452.9375, or a wide SDR + KA9Q-radio).
 
-## Install
+## Install from source (without Docker)
+
+Prefer Docker (above) for the least fuss. To run it natively instead:
 
 System dependency (the native RTL-SDR library — not pip):
 

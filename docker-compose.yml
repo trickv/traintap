@@ -1,0 +1,35 @@
+# Batteries-included traintap: decoder + dashboard.
+#
+#   docker compose up          # build, scan, dashboard at http://localhost:8000
+#
+# Plug in your RTL-SDR first. The decoder needs USB access to it — the `devices`
+# line below passes the USB bus through. If your dongle isn't found, try
+# `privileged: true` instead (see README).
+#
+# NOTE: only one process can use the RTL-SDR at a time. Don't run this on a host
+# that's already running traintap against the same dongle.
+services:
+  traintap:
+    build: .
+    container_name: traintap
+    restart: unless-stopped
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    volumes:
+      - ./data:/data
+    # default command (Dockerfile) scans EOT + decodes DPU, logging to /data.
+    # For EOT+HOT time-share scanning, uncomment:
+    # command: ["--mode", "scan", "--csv", "/data/trains.csv", "--passes-csv", "/data/passes.csv", "--signal-csv", "/data/signal.csv"]
+
+  dashboard:
+    build: ./dashboard
+    container_name: traintap-dashboard
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATA_DIR=/data
+    volumes:
+      - ./data:/data:ro
+    depends_on:
+      - traintap
