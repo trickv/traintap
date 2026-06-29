@@ -157,9 +157,36 @@ Record real I/Q while a train passes, then replay it as a regression fixture.
   the unit address are provisional pending a clean live DPU capture to confirm.
 - Future: simultaneous EOT+HOT via a second receiver.
 
-## Credits
+## Attributions
 
-The BCH check algorithm and EOT field layout are ported from the GPL
-[EOTDecode](https://github.com/russinnes/EOTDecode) / PyEOT (Eric Reuter, 2018).
-traintap replaces the external `rtl_fm | sox | minimodem` chain with an
-in-process native-I/Q front end. Receive-only by design.
+traintap stands on the shoulders of prior EOT/HOT reverse-engineering and
+decoding work:
+
+- **[PyEOT](https://github.com/ereuter/PyEOT)** (Eric Reuter, 2018, GPL) — the
+  original Python EOT decoder. traintap's BCH check algorithm and EOT data-block
+  field layout (`traintap/frame.py`) are ported from it; this is the reason
+  traintap is GPL-licensed.
+- **[EOTDecode](https://github.com/russinnes/EOTDecode)** (Russ Innes, 2023) —
+  a PyEOT-derived decoder; the specific `helpers.py`/`eot_decoder.py` constants
+  and offsets traintap reuses were cross-checked against this fork.
+- **[SoftEOT](https://groups.io/g/SoftEOT)** — a Windows EOT/HOT decoder; the
+  community reference implementation for these signals.
+- **[SDRangel](https://github.com/f4exb/sdrangel)** — includes an EOT demod/decoder.
+- **[Signal Identification Wiki — EOTD](https://www.sigidwiki.com/wiki/End_of_Train_Device_(EOTD))**
+  and **[rtl-sdr.com](https://www.rtl-sdr.com/tag/end-of-train/)** — frequency,
+  modulation, and protocol references.
+
+What traintap adds over the above: an in-process native-I/Q front end (replacing
+the `rtl_fm | sox | minimodem` chain), BCH error correction, time-share EOT/HOT
+scanning with DPU decoded from the same capture, EOT↔DPU train-pass correlation,
+and a live web dashboard. Receive-only by design.
+
+Bundled third-party code: [Chart.js](https://www.chartjs.org/) (MIT) in
+`dashboard/static/vendor/`.
+
+## License
+
+GPL-3.0-or-later — see [LICENSE](LICENSE). traintap is a derivative of the
+GPL-licensed PyEOT, so the project carries the GPL forward. The bundled Chart.js
+(MIT) and the BSD/MIT-licensed dependencies (numpy, scipy, uvicorn, FastAPI) are
+GPL-compatible.
