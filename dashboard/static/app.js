@@ -145,6 +145,49 @@ async function refreshStats() {
       <td class="${t.meet ? "meet" : ""}">${notes.join(" · ")}</td>`;
     tb.appendChild(tr);
   }
+
+  renderHeatmap(d.heatmap);
+}
+
+// GitHub-style grid: rows = days, columns = 24 hours, shade = distinct trains.
+function renderHeatmap(hm) {
+  const el = $("heatmap");
+  el.innerHTML = "";
+  if (!hm || !hm.days.length) { el.textContent = "No data yet."; return; }
+
+  const grid = document.createElement("div");
+  grid.className = "hm-grid";
+  grid.appendChild(Object.assign(document.createElement("div"), { className: "hm-corner" }));
+  for (let h = 0; h < 24; h++) {
+    const c = document.createElement("div");
+    c.className = "hm-col";
+    c.textContent = h % 3 === 0 ? h : "";
+    grid.appendChild(c);
+  }
+  hm.days.forEach((day, di) => {
+    const d0 = new Date(day + "T00:00");
+    const lbl = document.createElement("div");
+    lbl.className = "hm-row-label";
+    lbl.textContent = d0.toLocaleDateString([], { month: "short", day: "numeric" });
+    grid.appendChild(lbl);
+    for (let h = 0; h < 24; h++) {
+      const n = (hm.grid[di] && hm.grid[di][h]) || 0;
+      const c = document.createElement("div");
+      c.className = "hm-cell hm" + Math.min(n, 4);
+      c.title = `${n} train${n === 1 ? "" : "s"} · `
+        + d0.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })
+        + ` ${String(h).padStart(2, "0")}:00`;
+      grid.appendChild(c);
+    }
+  });
+  el.appendChild(grid);
+
+  const lg = document.createElement("div");
+  lg.className = "hm-legend";
+  lg.innerHTML = "Less"
+    + [0, 1, 2, 3, 4].map((i) => `<span class="hm-cell hm${i}"></span>`).join("")
+    + "More";
+  el.appendChild(lg);
 }
 
 document.querySelectorAll(".ranges button").forEach((b) =>

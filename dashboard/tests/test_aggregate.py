@@ -57,6 +57,27 @@ def test_stats_trains_per_hour_and_meets():
     assert d["recent_trains"][0]["meet"] is True  # newest first
 
 
+def test_hour_day_heatmap():
+    from datetime import datetime
+    now = datetime(2026, 7, 2, 12, 0, 0).timestamp()
+    passes = [
+        # two distinct trains in 06-29 hour 14 (one starts at :55 -> still hour 14)
+        {"start": "2026-06-29 14:55:00", "eot_units": "100"},
+        {"start": "2026-06-29 14:05:00", "eot_units": "200"},
+        {"start": "2026-06-29 14:30:00", "eot_units": "100"},   # dup unit -> not +1
+        # two distinct trains in 06-30 hour 9
+        {"start": "2026-06-30 09:10:00", "eot_units": "300|400"},
+        {"start": "2026-06-30 09:50:00", "eot_units": "300"},    # dup -> not +1
+    ]
+    h = aggregate.hour_day_heatmap(passes, now, "all")
+    assert h["days"] == ["2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02"]
+    assert all(len(row) == 24 for row in h["grid"])
+    assert h["grid"][0][14] == 2 and h["grid"][0][15] == 0   # distinct, start-hour only
+    assert h["grid"][1][9] == 2
+    assert h["grid"][2] == [0] * 24 and h["grid"][3] == [0] * 24  # empty days shown
+    assert h["max"] == 2
+
+
 def test_stats_signal_series_and_median():
     sig = [{"epoch": str(NOW - i * 10), "activity_db": str(10 + i)}
            for i in range(5)]

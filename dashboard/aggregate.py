@@ -91,6 +91,42 @@ def _rolling_median(points: list[tuple[float, float]], window: int = 9):
     return out
 
 
+def hour_day_heatmap(passes, now: float, rng: str = "7d",
+                     max_days: int = 120) -> dict:
+    """GitHub-style grid: rows = days, columns = 24 hours, cell = distinct trains
+    heard that hour. Each pass counts once, in the local hour of its `start` (the
+    first hour it's heard); distinct = unique EOT units within the cell."""
+    cutoff = _cutoff(now, rng)
+    pa = [r for r in passes if _parse_dt(r.get("start", "")) >= cutoff]
+    if cutoff <= 0:  # "all": start at the earliest pass we actually have
+        starts = [_parse_dt(r.get("start", "")) for r in pa if r.get("start")]
+        cutoff = min(starts) if starts else now
+
+    start_day = datetime.fromtimestamp(cutoff).date()
+    end_day = datetime.fromtimestamp(now).date()
+    days = []
+    d = start_day
+    while d <= end_day:
+        days.append(d)
+        d = d.fromordinal(d.toordinal() + 1)
+    days = days[-max_days:]                       # cap rows for sanity
+    day_index = {d.isoformat(): i for i, d in enumerate(days)}
+
+    # accumulate a set of distinct units per (day, hour) cell
+    cells = [[set() for _ in range(24)] for _ in days]
+    for r in pa:
+        dt = datetime.fromtimestamp(_parse_dt(r["start"]))
+        di = day_index.get(dt.date().isoformat())
+        if di is None:
+            continue
+        units = [u for u in (r.get("eot_units") or "").split("|") if u]
+        cells[di][dt.hour].update(units or ["?"])   # count unit-less passes as 1
+
+    grid = [[len(c) for c in row] for row in cells]
+    return {"days": [d.isoformat() for d in days], "grid": grid,
+            "max": max((v for row in grid for v in row), default=0)}
+
+
 def stats(trains, passes, signal, now: float, rng: str = "24h") -> dict:
     cutoff = _cutoff(now, rng)
 
@@ -177,6 +213,7 @@ def stats(trains, passes, signal, now: float, rng: str = "24h") -> dict:
         "signal_median": sig_median,
         "meets": meets,
         "recent_trains": recent,
+        "heatmap": hour_day_heatmap(passes, now, rng),
     }
 
 

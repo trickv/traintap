@@ -59,3 +59,20 @@ th { color: var(--sub); font-weight: 600; }
 footer { color: var(--sub); font-size: 12px; padding: 8px 20px 24px; }
 
 @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+
+/* GitHub-style activity heatmap */
+.heatmap { overflow-x: auto; padding-top: 4px; }
+.hm-grid { display: grid; grid-template-columns: auto repeat(24, 15px);
+  gap: 3px; width: max-content; }
+.hm-col { font-size: 9px; color: var(--sub); text-align: center; align-self: end; }
+.hm-row-label { font-size: 11px; color: var(--sub); padding-right: 8px;
+  white-space: nowrap; align-self: center; text-align: right; }
+.hm-cell { width: 15px; height: 15px; border-radius: 3px; }
+.hm0 { background: var(--line); }            /* no trains */
+.hm1 { background: #0e4429; }
+.hm2 { background: #006d32; }
+.hm3 { background: #26a641; }
+.hm4 { background: #39d353; }                /* 4+ trains */
+.hm-legend { display: flex; align-items: center; gap: 4px; margin-top: 12px;
+  color: var(--sub); font-size: 12px; }
+.hm-legend .hm-cell { width: 13px; height: 13px; }
