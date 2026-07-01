@@ -19,6 +19,15 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 app = FastAPI(title="traintap dashboard")
 
 
+@app.middleware("http")
+async def no_cache(request, call_next):
+    """Revalidate every asset (etag-based 304s) so a redeploy never leaves the
+    browser rendering fresh HTML/JS against a stale cached CSS."""
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 @app.get("/api/status")
 def api_status():
     return aggregate.current_status(DATA_DIR, time.time())
