@@ -92,15 +92,18 @@ def _rolling_median(points: list[tuple[float, float]], window: int = 9):
 
 
 def hour_day_heatmap(passes, now: float, rng: str = "7d",
-                     max_days: int = 120) -> dict:
+                     max_days: int = 120, min_days: int = 7) -> dict:
     """GitHub-style grid: rows = days, columns = 24 hours, cell = distinct trains
     heard that hour. Each pass counts once, in the local hour of its `start` (the
-    first hour it's heard); distinct = unique EOT units within the cell."""
+    first hour it's heard); distinct = unique EOT units within the cell.
+
+    Always spans at least `min_days` days (default 7) regardless of the range
+    selector, showing real train data across that whole window."""
     cutoff = _cutoff(now, rng)
-    pa = [r for r in passes if _parse_dt(r.get("start", "")) >= cutoff]
     if cutoff <= 0:  # "all": start at the earliest pass we actually have
-        starts = [_parse_dt(r.get("start", "")) for r in pa if r.get("start")]
+        starts = [_parse_dt(r.get("start", "")) for r in passes if r.get("start")]
         cutoff = min(starts) if starts else now
+    cutoff = min(cutoff, now - min_days * 86_400)   # always show >= min_days days
 
     start_day = datetime.fromtimestamp(cutoff).date()
     end_day = datetime.fromtimestamp(now).date()
@@ -114,8 +117,11 @@ def hour_day_heatmap(passes, now: float, rng: str = "7d",
 
     # accumulate a set of distinct units per (day, hour) cell
     cells = [[set() for _ in range(24)] for _ in days]
-    for r in pa:
-        dt = datetime.fromtimestamp(_parse_dt(r["start"]))
+    for r in passes:
+        e = _parse_dt(r.get("start", ""))
+        if e < cutoff:
+            continue
+        dt = datetime.fromtimestamp(e)
         di = day_index.get(dt.date().isoformat())
         if di is None:
             continue

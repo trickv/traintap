@@ -70,12 +70,23 @@ def test_hour_day_heatmap():
         {"start": "2026-06-30 09:50:00", "eot_units": "300"},    # dup -> not +1
     ]
     h = aggregate.hour_day_heatmap(passes, now, "all")
-    assert h["days"] == ["2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02"]
+    idx = {d: i for i, d in enumerate(h["days"])}
+    assert len(h["days"]) >= 7                                # always >= 7 days
     assert all(len(row) == 24 for row in h["grid"])
-    assert h["grid"][0][14] == 2 and h["grid"][0][15] == 0   # distinct, start-hour only
-    assert h["grid"][1][9] == 2
-    assert h["grid"][2] == [0] * 24 and h["grid"][3] == [0] * 24  # empty days shown
+    assert h["grid"][idx["2026-06-29"]][14] == 2             # distinct, start-hour only
+    assert h["grid"][idx["2026-06-29"]][15] == 0
+    assert h["grid"][idx["2026-06-30"]][9] == 2
+    assert h["grid"][idx["2026-06-28"]] == [0] * 24          # empty day shown
     assert h["max"] == 2
+
+
+def test_heatmap_shows_min_7_days_even_on_24h_range():
+    from datetime import datetime
+    now = datetime(2026, 7, 2, 12, 0, 0).timestamp()
+    passes = [{"start": "2026-07-02 08:00:00", "eot_units": "500"}]  # only today
+    h = aggregate.hour_day_heatmap(passes, now, "24h")
+    assert len(h["days"]) >= 7                                # forced minimum
+    assert h["grid"][h["days"].index("2026-07-02")][8] == 1
 
 
 def test_stats_signal_series_and_median():
