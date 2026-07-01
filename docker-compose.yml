@@ -29,6 +29,10 @@ services:
       - "8000:8000"
     environment:
       - DATA_DIR=/data
+      # OPTIONAL: perpendicular distance (meters) from your antenna to the track.
+      # Speed estimation works without it (Doppler-swing method); setting it just
+      # enables the more accurate geometric fit. Measure once off a map, or skip.
+      # - TRACK_DISTANCE_M=120
     volumes:
       - ./data:/data:ro
     depends_on:

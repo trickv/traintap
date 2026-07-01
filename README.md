@@ -103,6 +103,17 @@ alongside any DPU (and HOT) units heard together — so a mid-train distributed-
 power unit is tied to the EOT that identifies the train. The console prints a
 `== PASS hh:mm:ss-hh:mm:ss  EOT 69686x4  DPU 12345x2` line as each pass closes.
 
+### Speed estimate (Doppler, experimental)
+
+The dashboard estimates each train's speed from the **Doppler shift** of its EOT
+carrier as it passes (logged per burst as `freq_offset_hz` in `signal.csv`). It
+works **out of the box** with no setup (a swing estimate from the frequency
+excursion). Optionally set **`TRACK_DISTANCE_M`** (perpendicular meters from your
+antenna to the track — measure once off a map) to enable a more accurate
+geometric fit; it's purely optional. Caveat: EOT bursts are ~60 s apart, so speed
+is reliable mainly for slower/longer passes and shows `—` when there are too few
+samples to trust.
+
 Modulation is 1200-baud FFSK in an ~8 kHz NFM channel (mark 1200 Hz, space
 1800 Hz after FM demod).
 
