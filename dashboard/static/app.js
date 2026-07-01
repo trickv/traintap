@@ -60,6 +60,7 @@ async function refreshStats() {
     ? `${d.busiest_hour.count}` : "0";
   const q = d.decode_quality, qt = q.clean + q.corrected;
   $("c-quality").textContent = qt ? `${Math.round(100 * q.clean / qt)}%` : "–";
+  $("c-speed").textContent = d.median_speed_mph != null ? d.median_speed_mph : "–";
   $("updated").textContent = "updated " + new Date().toLocaleTimeString();
 
   // trains per hour
@@ -139,9 +140,11 @@ async function refreshStats() {
     const notes = [];
     if (t.dpu_units.length) notes.push("DPU " + t.dpu_units.join(","));
     if (t.eot_units.length > 1) notes.push("MEET");
+    const mph = t.speed_mph != null
+      ? `<span title="${t.speed_quality}">${t.speed_mph}</span>` : "—";
     tr.innerHTML = `<td>${t.start ? t.start.slice(5) : ""}</td>
       <td>${t.eot_units.join(", ") || "—"}</td><td>${t.eot_pkts}</td>
-      <td>${t.peak_db ?? "—"}</td><td>${t.duration_s}s</td>
+      <td>${t.peak_db ?? "—"}</td><td>${mph}</td><td>${t.duration_s}s</td>
       <td class="${t.meet ? "meet" : ""}">${notes.join(" · ")}</td>`;
     tb.appendChild(tr);
   }

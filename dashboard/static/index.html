@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>traintap — train telemetry</title>
-<link rel="stylesheet" href="/style.css?v=2">
+<link rel="stylesheet" href="/style.css?v=3">
 </head>
 <body>
 <header>
@@ -29,6 +29,7 @@
   <div class="card"><div class="num" id="c-meets">–</div><div class="lbl">meets</div></div>
   <div class="card"><div class="num" id="c-busiest">–</div><div class="lbl">busiest hour</div></div>
   <div class="card"><div class="num" id="c-quality">–</div><div class="lbl">clean decode</div></div>
+  <div class="card"><div class="num" id="c-speed">–</div><div class="lbl">median mph</div></div>
 </section>
 
 <main class="grid">
@@ -43,7 +44,7 @@
   <div class="panel wide">
     <h2>Recent trains</h2>
     <table id="recent"><thead><tr>
-      <th>Time</th><th>Unit(s)</th><th>Pkts</th><th>Peak dB</th><th>Dur</th><th>Notes</th>
+      <th>Time</th><th>Unit(s)</th><th>Pkts</th><th>Peak dB</th><th>mph</th><th>Dur</th><th>Notes</th>
     </tr></thead><tbody></tbody></table>
   </div>
 </main>
@@ -51,6 +52,6 @@
 <footer>traintap · EOT 457.9375 · DPU 457.9250 · <span id="updated"></span></footer>
 
 <script src="/vendor/chart.umd.min.js"></script>
-<script src="/app.js?v=2"></script>
+<script src="/app.js?v=3"></script>
 </body>
 </html>

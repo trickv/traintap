@@ -15,6 +15,10 @@ import aggregate
 
 DATA_DIR = os.environ.get("DATA_DIR", "data")
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+try:
+    TRACK_DISTANCE_M = float(os.environ["TRACK_DISTANCE_M"])  # perpendicular m to track
+except (KeyError, ValueError):
+    TRACK_DISTANCE_M = None
 
 app = FastAPI(title="traintap dashboard")
 
@@ -35,7 +39,7 @@ def api_status():
 
 @app.get("/api/stats")
 def api_stats(range: str = Query("24h", pattern="^(24h|7d|all)$")):
-    return aggregate.all_stats(DATA_DIR, time.time(), range)
+    return aggregate.all_stats(DATA_DIR, time.time(), range, TRACK_DISTANCE_M)
 
 
 @app.get("/api/health")

@@ -12,6 +12,8 @@ import os
 import statistics
 from datetime import datetime
 
+import speed as _speed
+
 RANGES = {"24h": 86_400, "7d": 604_800, "all": None}
 SOURCES = ("EOT", "HOT", "DPU")
 
@@ -133,7 +135,8 @@ def hour_day_heatmap(passes, now: float, rng: str = "7d",
             "max": max((v for row in grid for v in row), default=0)}
 
 
-def stats(trains, passes, signal, now: float, rng: str = "24h") -> dict:
+def stats(trains, passes, signal, now: float, rng: str = "24h",
+          track_distance_m: float | None = None) -> dict:
     cutoff = _cutoff(now, rng)
 
     tr = [r for r in trains if _f(r["epoch"]) >= cutoff and r.get("valid") == "1"]
@@ -187,21 +190,30 @@ def stats(trains, passes, signal, now: float, rng: str = "24h") -> dict:
                         key=lambda p: p[0])
     sig_median = _rolling_median([(e, v) for e, v in sig_points])
 
-    # recent trains (from passes), peak dB joined from signal samples in window
-    def peak_db(start_s, end_s):
+    # recent trains (from passes): peak dB + Doppler speed from signal samples in window
+    def pass_signal(start_s, end_s):
         s0, s1 = _parse_dt(start_s), _parse_dt(end_s) + 90
-        ds = [_f(r["activity_db"]) for r in sg if s0 - 30 <= _f(r["epoch"]) <= s1]
-        return round(max(ds), 1) if ds else None
+        return [r for r in sg if s0 - 30 <= _f(r["epoch"]) <= s1]
 
     recent = []
     for r in sorted(pa, key=lambda r: _parse_dt(r.get("start", "")), reverse=True)[:15]:
         us = [u for u in (r.get("eot_units") or "").split("|") if u]
         dus = [u for u in (r.get("dpu_units") or "").split("|") if u]
+        win = pass_signal(r.get("start"), r.get("end"))
+        peak_db = round(max((_f(x["activity_db"]) for x in win), default=0), 1) \
+            if win else None
+        sp = _speed.estimate_speed(
+            [(_f(x["epoch"]), x.get("freq_offset_hz", "")) for x in win],
+            track_distance_m)
         recent.append({
             "start": r.get("start"), "duration_s": int(_f(r.get("duration_s"))),
             "eot_units": us, "eot_pkts": int(_f(r.get("eot_pkts"))),
-            "dpu_units": dus, "peak_db": peak_db(r.get("start"), r.get("end")),
+            "dpu_units": dus, "peak_db": peak_db,
+            "speed_mph": sp.get("speed_mph"), "speed_quality": sp.get("quality"),
             "meet": len(us) > 1 or bool(dus)})
+
+    speeds = [e["speed_mph"] for e in recent if e["speed_mph"] is not None]
+    median_speed = round(statistics.median(speeds), 1) if speeds else None
 
     return {
         "range": rng, "now": now,
@@ -219,14 +231,18 @@ def stats(trains, passes, signal, now: float, rng: str = "24h") -> dict:
         "signal_median": sig_median,
         "meets": meets,
         "recent_trains": recent,
+        "median_speed_mph": median_speed,
+        "track_distance_m": track_distance_m,
         "heatmap": hour_day_heatmap(passes, now, rng),
     }
 
 
-def all_stats(data_dir: str, now: float, rng: str = "24h") -> dict:
+def all_stats(data_dir: str, now: float, rng: str = "24h",
+              track_distance_m: float | None = None) -> dict:
     return stats(load_csv(os.path.join(data_dir, "trains.csv")),
                  load_csv(os.path.join(data_dir, "passes.csv")),
-                 load_csv(os.path.join(data_dir, "signal.csv")), now, rng)
+                 load_csv(os.path.join(data_dir, "signal.csv")), now, rng,
+                 track_distance_m)
 
 
 def current_status(data_dir: str, now: float) -> dict:
