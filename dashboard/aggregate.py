@@ -50,15 +50,51 @@ def _cutoff(now: float, rng: str) -> float:
     return 0.0 if secs is None else now - secs
 
 
+# --- stationary/parked detection (EOT motion bit) ----------------------------
+
+def stationary_units(valid_eot, min_pkts: int = 6, stopped_frac: float = 0.7) -> set:
+    """Units that are parked/stationary, not passing trains: their EOT packets
+    predominantly report motion=0 (stopped). A parked FRED heartbeats for
+    minutes/hours and would otherwise flood counts, the heatmap, and 'meets'."""
+    by_unit: dict[str, list[int]] = {}
+    for r in valid_eot:
+        if r.get("source") != "EOT":
+            continue
+        u = r.get("unit_addr")
+        if not u:
+            continue
+        t = by_unit.setdefault(u, [0, 0])
+        t[0] += 1
+        if r.get("motion") == "0":
+            t[1] += 1
+    return {u for u, (n, s) in by_unit.items()
+            if n >= min_pkts and s / n >= stopped_frac}
+
+
 # --- status (real-time, from trains.csv) -------------------------------------
 
 def status(trains: list[dict], now: float, near_window: float = 180.0) -> dict:
     valid = [r for r in trains if r.get("valid") == "1"]
     if not valid:
         return {"train_near": False, "minutes_since": None,
-                "last_packet_epoch": None, "last_unit": None,
-                "last_source": None, "last_pressure": None, "now": now}
-    last = max(valid, key=lambda r: _f(r["epoch"]))
+                "last_packet_epoch": None, "last_unit": None, "last_source": None,
+                "last_pressure": None, "parked_near": False, "parked_unit": None,
+                "now": now}
+    parked = stationary_units(valid)
+    # "TRAIN NEAR" keys on the last non-parked (passing) unit, so a parked
+    # heartbeat can't hold the light green.
+    moving = [r for r in valid if r.get("unit_addr") not in parked]
+    parked_hits = [r for r in valid if r.get("unit_addr") in parked]
+    pnear = bool(parked_hits) and (
+        now - max(_f(r["epoch"]) for r in parked_hits)) <= near_window
+    punit = max(parked_hits, key=lambda r: _f(r["epoch"])).get("unit_addr") \
+        if parked_hits else None
+    if not moving:
+        return {"train_near": False, "minutes_since": None,
+                "last_packet_epoch": None, "last_unit": None, "last_source": None,
+                "last_pressure": None, "parked_near": pnear, "parked_unit": punit,
+                "now": now}
+    last = max(moving, key=lambda r: _f(r["epoch"]))
     ep = _f(last["epoch"])
     since = now - ep
     return {
@@ -68,6 +104,7 @@ def status(trains: list[dict], now: float, near_window: float = 180.0) -> dict:
         "last_unit": last.get("unit_addr") or None,
         "last_source": last.get("source"),
         "last_pressure": last.get("pressure_psig") or None,
+        "parked_near": pnear, "parked_unit": punit,
         "now": now,
     }
 
@@ -93,14 +130,15 @@ def _rolling_median(points: list[tuple[float, float]], window: int = 9):
     return out
 
 
-def hour_day_heatmap(passes, now: float, rng: str = "7d",
-                     max_days: int = 120, min_days: int = 7) -> dict:
+def hour_day_heatmap(passes, now: float, rng: str = "7d", max_days: int = 120,
+                     min_days: int = 7, exclude: set | None = None) -> dict:
     """GitHub-style grid: rows = days, columns = 24 hours, cell = distinct trains
     heard that hour. Each pass counts once, in the local hour of its `start` (the
     first hour it's heard); distinct = unique EOT units within the cell.
 
     Always spans at least `min_days` days (default 7) regardless of the range
     selector, showing real train data across that whole window."""
+    exclude = exclude or set()
     cutoff = _cutoff(now, rng)
     if cutoff <= 0:  # "all": start at the earliest pass we actually have
         starts = [_parse_dt(r.get("start", "")) for r in passes if r.get("start")]
@@ -127,8 +165,9 @@ def hour_day_heatmap(passes, now: float, rng: str = "7d",
         di = day_index.get(dt.date().isoformat())
         if di is None:
             continue
-        units = [u for u in (r.get("eot_units") or "").split("|") if u]
-        cells[di][dt.hour].update(units or ["?"])   # count unit-less passes as 1
+        units = [u for u in (r.get("eot_units") or "").split("|")
+                 if u and u not in exclude]
+        cells[di][dt.hour].update(units)             # parked-only passes -> 0
 
     grid = [[len(c) for c in row] for row in cells]
     return {"days": [d.isoformat() for d in days], "grid": grid,
@@ -142,6 +181,14 @@ def stats(trains, passes, signal, now: float, rng: str = "24h",
     tr = [r for r in trains if _f(r["epoch"]) >= cutoff and r.get("valid") == "1"]
     pa = [r for r in passes if _parse_dt(r.get("start", "")) >= cutoff]
     sg = [r for r in signal if _f(r["epoch"]) >= cutoff]
+
+    # parked/stationary EOTs (motion=0) are not passing trains — keep them out of
+    # train counts/meets/heatmap and list them separately.
+    parked = stationary_units(tr)
+
+    def moving_units(r):
+        return [u for u in (r.get("eot_units") or "").split("|")
+                if u and u not in parked]
 
     # source counts + decode quality
     source_counts = {s: 0 for s in SOURCES}
@@ -164,6 +211,8 @@ def stats(trains, passes, signal, now: float, rng: str = "24h",
     packets_per_hour = {b: {s: 0 for s in SOURCES} for b in buckets}
     hod = [0] * 24  # trains per hour-of-day
     for r in pa:
+        if not moving_units(r):          # skip parked-only "passes"
+            continue
         k = _hour_key(_parse_dt(r["start"]))
         if k in trains_per_hour:
             trains_per_hour[k] += 1
@@ -173,16 +222,20 @@ def stats(trains, passes, signal, now: float, rng: str = "24h",
         if k in bset:
             packets_per_hour[k][r.get("source", "EOT")] += 1
 
-    # unique units / meets / busiest
+    # unique units / meets / busiest / train count (parked excluded)
     units = set()
     meets = []
+    train_passes = 0
     for r in pa:
-        us = [u for u in (r.get("eot_units") or "").split("|") if u]
-        units.update(us)
-        if len(us) > 1 or (r.get("dpu_units") or ""):
+        mus = moving_units(r)
+        if not mus:
+            continue
+        train_passes += 1
+        units.update(mus)
+        dus = [u for u in (r.get("dpu_units") or "").split("|") if u]
+        if len(mus) > 1 or dus:      # a real meet = >1 moving train (or a DPU consist)
             meets.append({"start": r.get("start"), "end": r.get("end"),
-                          "eot_units": us, "dpu_units":
-                          [u for u in (r.get("dpu_units") or "").split("|") if u]})
+                          "eot_units": mus, "dpu_units": dus})
     busiest = max(trains_per_hour.items(), key=lambda kv: kv[1], default=("", 0))
 
     # signal series (+ rolling median) for antenna placement
@@ -196,8 +249,10 @@ def stats(trains, passes, signal, now: float, rng: str = "24h",
         return [r for r in sg if s0 - 30 <= _f(r["epoch"]) <= s1]
 
     recent = []
-    for r in sorted(pa, key=lambda r: _parse_dt(r.get("start", "")), reverse=True)[:15]:
-        us = [u for u in (r.get("eot_units") or "").split("|") if u]
+    moving_passes = [p for p in pa if moving_units(p)]      # exclude parked-only
+    for r in sorted(moving_passes, key=lambda r: _parse_dt(r.get("start", "")),
+                    reverse=True)[:15]:
+        us = moving_units(r)
         dus = [u for u in (r.get("dpu_units") or "").split("|") if u]
         win = pass_signal(r.get("start"), r.get("end"))
         peak_db = round(max((_f(x["activity_db"]) for x in win), default=0), 1) \
@@ -215,10 +270,24 @@ def stats(trains, passes, signal, now: float, rng: str = "24h",
     speeds = [e["speed_mph"] for e in recent if e["speed_mph"] is not None]
     median_speed = round(statistics.median(speeds), 1) if speeds else None
 
+    # parked / stationary units, listed separately (not counted as trains)
+    parked_units = []
+    for u in parked:
+        rows = [r for r in tr if r.get("unit_addr") == u]
+        if not rows:
+            continue
+        last = max(rows, key=lambda r: _f(r["epoch"]))
+        parked_units.append({
+            "unit": u, "packets": len(rows),
+            "last_seen": last.get("timestamp"),
+            "pressure": last.get("pressure_psig") or None})
+    parked_units.sort(key=lambda p: -p["packets"])
+
     return {
         "range": rng, "now": now,
-        "total_trains": len(pa),
+        "total_trains": train_passes,
         "unique_units": len(units),
+        "parked_units": parked_units,
         "source_counts": source_counts,
         "decode_quality": {"clean": clean, "corrected": corrected},
         "busiest_hour": {"hour": busiest[0], "count": busiest[1]},
@@ -233,7 +302,7 @@ def stats(trains, passes, signal, now: float, rng: str = "24h",
         "recent_trains": recent,
         "median_speed_mph": median_speed,
         "track_distance_m": track_distance_m,
-        "heatmap": hour_day_heatmap(passes, now, rng),
+        "heatmap": hour_day_heatmap(passes, now, rng, exclude=parked),
     }
 
 

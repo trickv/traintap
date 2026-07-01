@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>traintap — train telemetry</title>
-<link rel="stylesheet" href="/style.css?v=3">
+<link rel="stylesheet" href="/style.css?v=4">
 </head>
 <body>
 <header>
@@ -40,6 +40,7 @@
   <div class="panel wide"><h2>Packets per hour (by source)</h2><canvas id="packetsChart"></canvas></div>
   <div class="panel"><h2>Brake pressure (psig)</h2><canvas id="pressureChart"></canvas></div>
   <div class="panel"><h2>Activity by hour of day</h2><canvas id="hodChart"></canvas></div>
+  <div class="panel"><h2>Parked nearby (stationary EOTs)</h2><div id="parked" class="parked"></div></div>
   <div class="panel wide"><h2>When trains run — distinct trains per hour (rows = days)</h2><div id="heatmap" class="heatmap"></div></div>
   <div class="panel wide">
     <h2>Recent trains</h2>
@@ -52,6 +53,6 @@
 <footer>traintap · EOT 457.9375 · DPU 457.9250 · <span id="updated"></span></footer>
 
 <script src="/vendor/chart.umd.min.js"></script>
-<script src="/app.js?v=3"></script>
+<script src="/app.js?v=4"></script>
 </body>
 </html>

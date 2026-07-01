@@ -30,15 +30,20 @@ async function refreshStatus() {
     const s = await (await fetch("/api/status")).json();
     const light = $("light");
     light.className = "light";
-    if (s.minutes_since === null) {
-      light.classList.add("grey");
-      $("status-line").textContent = "No packets yet";
-      $("status-sub").textContent = "";
-    } else if (s.train_near) {
+    if (s.train_near) {
       light.classList.add("green");
       $("status-line").textContent = "🚂 TRAIN NEAR";
       $("status-sub").textContent =
         `unit ${s.last_unit} · ${s.last_pressure} psig · ${s.minutes_since} min ago`;
+    } else if (s.parked_near) {
+      light.classList.add("amber");
+      $("status-line").textContent = "⏸ parked unit nearby";
+      $("status-sub").textContent =
+        `stationary EOT ${s.parked_unit} (not a passing train)`;
+    } else if (s.minutes_since === null) {
+      light.classList.add("grey");
+      $("status-line").textContent = "No trains yet";
+      $("status-sub").textContent = "";
     } else {
       light.classList.add(s.minutes_since < 60 ? "amber" : "red");
       $("status-line").textContent = "clear";
@@ -150,6 +155,26 @@ async function refreshStats() {
   }
 
   renderHeatmap(d.heatmap);
+  renderParked(d.parked_units);
+}
+
+function renderParked(list) {
+  const el = $("parked");
+  el.innerHTML = "";
+  if (!list || !list.length) { el.textContent = "none"; return; }
+  const tbl = document.createElement("table");
+  tbl.innerHTML = "<thead><tr><th>Unit</th><th>Pkts</th><th>psig</th>"
+    + "<th>Last seen</th></tr></thead>";
+  const tb = document.createElement("tbody");
+  for (const p of list) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${p.unit}</td><td>${p.packets}</td>`
+      + `<td>${p.pressure ?? "—"}</td>`
+      + `<td>${p.last_seen ? p.last_seen.slice(5) : "—"}</td>`;
+    tb.appendChild(tr);
+  }
+  tbl.appendChild(tb);
+  el.appendChild(tbl);
 }
 
 // GitHub-style grid: rows = days, columns = 24 hours, shade = distinct trains.

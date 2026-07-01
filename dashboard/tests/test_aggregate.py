@@ -8,9 +8,39 @@ import aggregate  # noqa: E402
 NOW = 1_000_000.0
 
 
-def _train(epoch, source="EOT", valid="1", corrected="0", unit="100", press="88"):
+def _train(epoch, source="EOT", valid="1", corrected="0", unit="100", press="88",
+           motion="1"):
     return {"epoch": str(epoch), "source": source, "valid": valid,
-            "corrected": corrected, "unit_addr": unit, "pressure_psig": press}
+            "corrected": corrected, "unit_addr": unit, "pressure_psig": press,
+            "motion": motion, "timestamp": "2001-09-09 01:46:40"}
+
+
+def test_parked_unit_excluded_from_trains():
+    # unit 999 parked (8 packets, all stopped); unit 111 a real moving train
+    trains = ([_train(NOW - 200 + i, unit="999", motion="0") for i in range(8)]
+              + [_train(NOW - 100 + i, unit="111", motion="1") for i in range(3)])
+    passes = [
+        {"start": "2001-09-09 01:40:00", "end": "2001-09-09 02:00:00",
+         "duration_s": "1200", "eot_units": "999", "eot_pkts": "8"},   # parked-only
+        {"start": "2001-09-09 01:50:00", "end": "2001-09-09 01:50:30",
+         "duration_s": "30", "eot_units": "111", "eot_pkts": "3"},     # real train
+        {"start": "2001-09-09 01:51:00", "end": "2001-09-09 01:51:30",
+         "duration_s": "30", "eot_units": "999|111", "eot_pkts": "5"},  # not a meet
+    ]
+    d = aggregate.stats(trains, passes, [], NOW + 100, "all")
+    assert d["total_trains"] == 2                     # parked-only pass excluded
+    assert d["unique_units"] == 1                     # only 111
+    assert d["meets"] == []                           # 999|111 is not a real meet
+    assert [p["unit"] for p in d["parked_units"]] == ["999"]
+    assert d["parked_units"][0]["packets"] == 8
+
+
+def test_status_ignores_parked_for_train_near():
+    # only a parked unit heard recently -> not TRAIN NEAR, but parked_near flagged
+    trains = [_train(NOW - 30 + i, unit="999", motion="0") for i in range(8)]
+    s = aggregate.status(trains, NOW)
+    assert s["train_near"] is False
+    assert s["parked_near"] is True and s["parked_unit"] == "999"
 
 
 def test_status_train_near():
