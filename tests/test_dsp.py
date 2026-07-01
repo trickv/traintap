@@ -38,6 +38,27 @@ def test_noisy_decode(noise):
     assert valid[0].pressure == 55
 
 
+@pytest.mark.parametrize("doppler", [0.0, 20.0, 46.0, -46.0, 90.0])
+def test_carrier_offset_recovers_doppler(doppler):
+    from traintap.dsp import carrier_offset_hz, synthesize_iq
+    bits = "10" * 48 + frame.encode_eot(unit_addr=12345, pressure=90) + "00" * 10
+    iq = synthesize_iq(bits, FS, noise=0.05, doppler_hz=doppler, seed=1)
+    est = carrier_offset_hz(iq, FS, 250_000)
+    assert abs(est - doppler) < 8.0        # recovered within a few Hz
+
+
+def test_carrier_offset_data_independent():
+    from traintap.dsp import carrier_offset_hz, synthesize_iq
+    pre = "10" * 48
+    a = synthesize_iq(pre + frame.encode_eot(unit_addr=1, pressure=5) + "00" * 10,
+                      FS, doppler_hz=30, seed=1)
+    b = synthesize_iq(pre + frame.encode_eot(unit_addr=99999, pressure=125) + "11" * 10,
+                      FS, doppler_hz=30, seed=2)
+    ea = carrier_offset_hz(a, FS, 250_000)
+    eb = carrier_offset_hz(b, FS, 250_000)
+    assert abs(ea - eb) < 8.0              # payload content barely shifts it
+
+
 def test_prune_captures_keeps_newest(tmp_path):
     import os, time as _t
     from traintap.cli import _prune_captures

@@ -93,6 +93,32 @@ def channel_activity_db(iq: np.ndarray, fs_in: int, offset_hz: float,
     return float(10 * np.log10(in_band.mean() / (guard.mean() + 1e-20)))
 
 
+def carrier_offset_hz(iq: np.ndarray, fs_in: int, offset_hz: float,
+                      audio_fs: int = AUDIO_FS) -> float:
+    """Estimate the in-channel burst's carrier frequency offset (Hz), relative to
+    the tuned EOT channel. For a real EOT this is the dongle's ppm bias plus any
+    Doppler shift; tracked across a pass, the *change* is the Doppler swing.
+
+    Uses the power-weighted mean instantaneous frequency of the channel-filtered
+    baseband: the burst (high, ~constant envelope) dominates over noise, and the
+    FSK mark/space deviation averages out, so the estimate is ~independent of the
+    packet's data content.
+    """
+    iq = np.asarray(iq, dtype=np.complex64)
+    n = np.arange(len(iq))
+    bb = iq * np.exp(-2j * np.pi * offset_hz / fs_in * n)
+    up, down = _resample_factors(fs_in, audio_fs)
+    bb = resample_poly(bb, up, down)
+    bb = lfilter(firwin(65, CHANNEL_LPF_HZ, fs=audio_fs), 1.0, bb)
+    inst = np.angle(bb[1:] * np.conj(bb[:-1]))   # rad/sample
+    w = np.abs(bb[1:]) ** 2
+    tot = float(w.sum())
+    if tot <= 0:
+        return 0.0
+    mean_rad = float(np.sum(w * inst) / tot)
+    return mean_rad * audio_fs / (2 * np.pi)
+
+
 def _s32(x: int) -> int:
     x &= 0xFFFFFFFF
     return x - (1 << 32) if x >= (1 << 31) else x
@@ -141,9 +167,11 @@ def iq_to_bits(iq: np.ndarray, fs_in: int, offset_hz: float = DEFAULT_OFFSET_HZ,
 
 def synthesize_iq(bits: str, fs_out: int, offset_hz: float = DEFAULT_OFFSET_HZ,
                   deviation_hz: float = 3000.0, baud: int = BAUD,
-                  noise: float = 0.0, seed: int = 0) -> np.ndarray:
+                  noise: float = 0.0, seed: int = 0,
+                  doppler_hz: float = 0.0) -> np.ndarray:
     """Generate complex I/Q for an AFSK bitstring, as a real EOT signal would
-    appear `offset_hz` above the SDR center frequency. Inverse of iq_to_bits."""
+    appear `offset_hz` above the SDR center frequency. Inverse of iq_to_bits.
+    `doppler_hz` shifts the carrier (to test carrier_offset_hz / speed)."""
     sps = fs_out / baud
     total = int(round(len(bits) * sps))
     t = np.arange(total)
@@ -155,7 +183,7 @@ def synthesize_iq(bits: str, fs_out: int, offset_hz: float = DEFAULT_OFFSET_HZ,
     audio_phase = 2 * np.pi * np.cumsum(inst_audio) / fs_out
     msg = np.cos(audio_phase)                       # the tone, in [-1, 1]
 
-    f_rf = offset_hz + deviation_hz * msg           # FM: carrier rides the tone
+    f_rf = offset_hz + doppler_hz + deviation_hz * msg   # FM: carrier rides the tone
     rf_phase = 2 * np.pi * np.cumsum(f_rf) / fs_out
     iq = np.exp(1j * rf_phase).astype(np.complex64)
 

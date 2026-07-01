@@ -8,7 +8,8 @@ import sys
 import time
 
 from . import DPU_FREQ_HZ, EOT_FREQ_HZ, HOT_FREQ_HZ, __version__
-from .dsp import DEFAULT_OFFSET_HZ, channel_activity_db, iq_to_bits, synthesize_iq
+from .dsp import (DEFAULT_OFFSET_HZ, carrier_offset_hz, channel_activity_db,
+                  iq_to_bits, synthesize_iq)
 from .frame import DEFAULT_MAX_CORRECT, Packet, encode_eot, find_frames
 from .output import Reporter, SignalLog
 
@@ -223,7 +224,9 @@ def run_loop(source, plan, reporter, *, is_replay: bool,
                             max_correct=max_correct)
         eot_valid = sum(1 for p in pkts if p.valid)
         if signal_log is not None and act is not None and act >= activity_threshold:
-            signal_log.log(now, freq, name, act, eot_valid)
+            # per-burst carrier frequency (ppm bias + Doppler) for speed estimation
+            foff = carrier_offset_hz(iq, source.sample_rate, source.offset_hz)
+            signal_log.log(now, freq, name, act, eot_valid, foff)
         # DPU (457.9250) sits 12.5 kHz below EOT, inside the same capture -- decode
         # it from the same I/Q at the DPU offset, no retuning.
         if decode_dpu_too and name == "EOT":

@@ -99,7 +99,7 @@ PASS_CSV_COLUMNS = ["start", "end", "duration_s", "eot_units", "eot_pkts",
                     "dpu_units", "dpu_pkts", "hot_units", "hot_pkts"]
 
 SIGNAL_CSV_COLUMNS = ["epoch", "timestamp", "freq_hz", "source",
-                      "activity_db", "n_valid"]
+                      "activity_db", "n_valid", "freq_offset_hz"]
 
 
 @dataclass
@@ -116,15 +116,16 @@ class SignalLog:
         if self.path:
             self._file, self._writer = _open_append_csv(self.path, SIGNAL_CSV_COLUMNS)
 
-    def log(self, epoch: float, freq_hz: int, source: str,
-            activity_db: float, n_valid: int) -> None:
+    def log(self, epoch: float, freq_hz: int, source: str, activity_db: float,
+            n_valid: int, freq_offset_hz: float | None = None) -> None:
         if self._writer is None:
             return
         self._writer.writerow({
             "epoch": f"{epoch:.3f}",
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(epoch)),
             "freq_hz": freq_hz, "source": source,
-            "activity_db": f"{activity_db:.1f}", "n_valid": n_valid})
+            "activity_db": f"{activity_db:.1f}", "n_valid": n_valid,
+            "freq_offset_hz": "" if freq_offset_hz is None else f"{freq_offset_hz:.1f}"})
         self._file.flush()
 
     def close(self) -> None:
