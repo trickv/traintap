@@ -243,23 +243,33 @@ def stats(trains, passes, signal, now: float, rng: str = "24h",
                         key=lambda p: p[0])
     sig_median = _rolling_median([(e, v) for e, v in sig_points])
 
-    # recent trains (from passes): peak dB + Doppler speed from signal samples in window
+    # per-moving-pass metrics: peak dB + Doppler speed, computed once
     def pass_signal(start_s, end_s):
         s0, s1 = _parse_dt(start_s), _parse_dt(end_s) + 90
         return [r for r in sg if s0 - 30 <= _f(r["epoch"]) <= s1]
 
-    recent = []
     moving_passes = [p for p in pa if moving_units(p)]      # exclude parked-only
-    for r in sorted(moving_passes, key=lambda r: _parse_dt(r.get("start", "")),
-                    reverse=True)[:15]:
-        us = moving_units(r)
-        dus = [u for u in (r.get("dpu_units") or "").split("|") if u]
+    meta = {}                 # id(pass) -> (peak_db, speed dict)
+    speed_series = []         # [epoch_mid, mph] for confident speeds -> the graph
+    for r in moving_passes:
         win = pass_signal(r.get("start"), r.get("end"))
         peak_db = round(max((_f(x["activity_db"]) for x in win), default=0), 1) \
             if win else None
         sp = _speed.estimate_speed(
-            [(_f(x["epoch"]), x.get("freq_offset_hz", "")) for x in win],
-            track_distance_m)
+            [(_f(x["epoch"]), x.get("freq_offset_hz", ""), _f(x["activity_db"]))
+             for x in win], track_distance_m)
+        meta[id(r)] = (peak_db, sp)
+        if sp.get("speed_mph") is not None:
+            mid = (_parse_dt(r["start"]) + _parse_dt(r["end"])) / 2.0
+            speed_series.append([mid, sp["speed_mph"]])
+    speed_series.sort(key=lambda p: p[0])
+
+    recent = []
+    for r in sorted(moving_passes, key=lambda r: _parse_dt(r.get("start", "")),
+                    reverse=True)[:15]:
+        us = moving_units(r)
+        dus = [u for u in (r.get("dpu_units") or "").split("|") if u]
+        peak_db, sp = meta[id(r)]
         recent.append({
             "start": r.get("start"), "duration_s": int(_f(r.get("duration_s"))),
             "eot_units": us, "eot_pkts": int(_f(r.get("eot_pkts"))),
@@ -267,7 +277,7 @@ def stats(trains, passes, signal, now: float, rng: str = "24h",
             "speed_mph": sp.get("speed_mph"), "speed_quality": sp.get("quality"),
             "meet": len(us) > 1 or bool(dus)})
 
-    speeds = [e["speed_mph"] for e in recent if e["speed_mph"] is not None]
+    speeds = [p[1] for p in speed_series]
     median_speed = round(statistics.median(speeds), 1) if speeds else None
 
     # parked / stationary units, listed separately (not counted as trains)
@@ -301,6 +311,7 @@ def stats(trains, passes, signal, now: float, rng: str = "24h",
         "meets": meets,
         "recent_trains": recent,
         "median_speed_mph": median_speed,
+        "speed_series": speed_series,
         "track_distance_m": track_distance_m,
         "heatmap": hour_day_heatmap(passes, now, rng, exclude=parked),
     }

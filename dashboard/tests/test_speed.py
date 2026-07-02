@@ -44,6 +44,16 @@ def test_low_confidence_returns_none():
     assert r["speed_mph"] is None and r["quality"] == "low"
 
 
+def test_rejects_outlier_and_unphysical():
+    times = [i * 4.0 for i in range(15)]
+    s = _scurve(15.0, 120.0, 28.0, times) + [(200.0, -563.0)]   # one junk sample
+    r = speed.estimate_speed(s, track_distance_m=120.0)
+    assert r["speed_mph"] is not None and r["speed_ms"] < 36    # outlier ignored
+    # a swing implying >80 mph is rejected as noise
+    huge = [(i * 4.0, (i % 2) * 400.0) for i in range(8)]
+    assert speed.estimate_speed(huge, track_distance_m=120.0)["speed_mph"] is None
+
+
 def test_faster_train_reads_faster():
     times = [i * 3.0 for i in range(25)]
     slow = speed.estimate_speed(_scurve(10.0, 100.0, 36.0, times), 100.0)

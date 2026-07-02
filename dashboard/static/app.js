@@ -128,6 +128,19 @@ async function refreshStats() {
       scales: { x: timeAxis, y: { title: { display: true, text: "psig" } } } },
   });
 
+  // train speed (Doppler) — one point per pass with a confident estimate
+  mkChart("speedChart", {
+    type: "scatter",
+    data: { datasets: [{ label: "mph", parsing: false,
+      data: d.speed_series.map((p) => ({ x: p[0], y: p[1] })),
+      backgroundColor: COLORS.DPU, pointRadius: 4 }] },
+    options: { plugins: { legend: { display: false },
+      tooltip: { callbacks: { title: (t) => fmtClock(t[0].parsed.x),
+        label: (t) => `${t.parsed.y} mph` } } },
+      scales: { x: timeAxis, y: { beginAtZero: true,
+        title: { display: true, text: "mph" } } } },
+  });
+
   // hour of day
   mkChart("hodChart", {
     type: "bar",
