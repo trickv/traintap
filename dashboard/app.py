@@ -34,7 +34,7 @@ async def no_cache(request, call_next):
 
 @app.get("/api/status")
 def api_status():
-    return aggregate.current_status(DATA_DIR, time.time())
+    return aggregate.current_status(DATA_DIR, time.time(), TRACK_DISTANCE_M)
 
 
 @app.get("/api/stats")

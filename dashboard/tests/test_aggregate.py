@@ -35,6 +35,26 @@ def test_parked_unit_excluded_from_trains():
     assert d["parked_units"][0]["packets"] == 8
 
 
+def test_status_live_speed():
+    import speed as _sp
+    # a moving train right now, with a Doppler swing across its signal samples
+    trains = [_train(NOW - 40 + i * 10, unit="111", motion="1") for i in range(5)]
+    A = _sp.F_HZ * 26.0 / _sp.C           # ~26 m/s asymptote
+    sig = [{"epoch": str(NOW - 40 + i * 10), "activity_db": "15",
+            "freq_offset_hz": str(-100 + A * [-1, -0.7, 0, 0.7, 1][i])}
+           for i in range(5)]
+    s = aggregate.status(trains, NOW + 1, signal=sig, track_distance_m=173.0)
+    assert s["train_near"] is True
+    assert s["speed_mph"] is not None and 5 < s["speed_mph"] < 80
+
+
+def test_parked_units_have_duration_and_ago():
+    trains = [_train(NOW - 600 + i * 60, unit="999", motion="0") for i in range(8)]
+    d = aggregate.stats(trains, [], [], NOW + 10, "all")
+    p = d["parked_units"][0]
+    assert p["duration_s"] == 420 and p["last_ago_s"] >= 10   # 7 gaps * 60s
+
+
 def test_status_ignores_parked_for_train_near():
     # only a parked unit heard recently -> not TRAIN NEAR, but parked_near flagged
     trains = [_train(NOW - 30 + i, unit="999", motion="0") for i in range(8)]

@@ -73,13 +73,15 @@ def stationary_units(valid_eot, min_pkts: int = 6, stopped_frac: float = 0.7) ->
 
 # --- status (real-time, from trains.csv) -------------------------------------
 
-def status(trains: list[dict], now: float, near_window: float = 180.0) -> dict:
+def status(trains: list[dict], now: float, near_window: float = 180.0,
+           signal=None, track_distance_m: float | None = None,
+           pass_gap: float = 90.0) -> dict:
+    empty = {"train_near": False, "minutes_since": None, "last_packet_epoch": None,
+             "last_unit": None, "last_source": None, "last_pressure": None,
+             "speed_mph": None, "parked_near": False, "parked_unit": None, "now": now}
     valid = [r for r in trains if r.get("valid") == "1"]
     if not valid:
-        return {"train_near": False, "minutes_since": None,
-                "last_packet_epoch": None, "last_unit": None, "last_source": None,
-                "last_pressure": None, "parked_near": False, "parked_unit": None,
-                "now": now}
+        return empty
     parked = stationary_units(valid)
     # "TRAIN NEAR" keys on the last non-parked (passing) unit, so a parked
     # heartbeat can't hold the light green.
@@ -90,20 +92,34 @@ def status(trains: list[dict], now: float, near_window: float = 180.0) -> dict:
     punit = max(parked_hits, key=lambda r: _f(r["epoch"])).get("unit_addr") \
         if parked_hits else None
     if not moving:
-        return {"train_near": False, "minutes_since": None,
-                "last_packet_epoch": None, "last_unit": None, "last_source": None,
-                "last_pressure": None, "parked_near": pnear, "parked_unit": punit,
-                "now": now}
+        return {**empty, "parked_near": pnear, "parked_unit": punit}
     last = max(moving, key=lambda r: _f(r["epoch"]))
     ep = _f(last["epoch"])
     since = now - ep
+    near = since <= near_window
+
+    # live speed of the train passing now: Doppler over its current pass so far
+    speed_mph = None
+    if near and signal:
+        eps = sorted(_f(r["epoch"]) for r in moving)
+        start = eps[-1]
+        for e in reversed(eps):        # walk back over the current contiguous run
+            if start - e <= pass_gap:
+                start = e
+            else:
+                break
+        samples = [(_f(x["epoch"]), x.get("freq_offset_hz", ""), _f(x["activity_db"]))
+                   for x in signal if start - 30 <= _f(x["epoch"]) <= now + 5]
+        speed_mph = _speed.estimate_speed(samples, track_distance_m).get("speed_mph")
+
     return {
-        "train_near": since <= near_window,
+        "train_near": near,
         "minutes_since": round(since / 60.0, 1),
         "last_packet_epoch": ep,
         "last_unit": last.get("unit_addr") or None,
         "last_source": last.get("source"),
         "last_pressure": last.get("pressure_psig") or None,
+        "speed_mph": speed_mph,
         "parked_near": pnear, "parked_unit": punit,
         "now": now,
     }
@@ -286,11 +302,13 @@ def stats(trains, passes, signal, now: float, rng: str = "24h",
         rows = [r for r in tr if r.get("unit_addr") == u]
         if not rows:
             continue
+        eps = [_f(r["epoch"]) for r in rows]
         last = max(rows, key=lambda r: _f(r["epoch"]))
         parked_units.append({
             "unit": u, "packets": len(rows),
-            "last_seen": last.get("timestamp"),
-            "pressure": last.get("pressure_psig") or None})
+            "pressure": last.get("pressure_psig") or None,
+            "duration_s": int(max(eps) - min(eps)),   # span it's been heartbeating
+            "last_ago_s": int(max(0.0, now - max(eps)))})
     parked_units.sort(key=lambda p: -p["packets"])
 
     return {
@@ -325,5 +343,8 @@ def all_stats(data_dir: str, now: float, rng: str = "24h",
                  track_distance_m)
 
 
-def current_status(data_dir: str, now: float) -> dict:
-    return status(load_csv(os.path.join(data_dir, "trains.csv")), now)
+def current_status(data_dir: str, now: float,
+                   track_distance_m: float | None = None) -> dict:
+    return status(load_csv(os.path.join(data_dir, "trains.csv")), now,
+                  signal=load_csv(os.path.join(data_dir, "signal.csv")),
+                  track_distance_m=track_distance_m)

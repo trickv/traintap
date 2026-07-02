@@ -34,7 +34,9 @@ async function refreshStatus() {
       light.classList.add("green");
       $("status-line").textContent = "🚂 TRAIN NEAR";
       $("status-sub").textContent =
-        `unit ${s.last_unit} · ${s.last_pressure} psig · ${s.minutes_since} min ago`;
+        `unit ${s.last_unit} · ${s.last_pressure} psig`
+        + (s.speed_mph != null ? ` · ${s.speed_mph} mph` : "")
+        + ` · ${s.minutes_since} min ago`;
     } else if (s.parked_near) {
       light.classList.add("amber");
       $("status-line").textContent = "⏸ parked unit nearby";
@@ -171,19 +173,22 @@ async function refreshStats() {
   renderParked(d.parked_units);
 }
 
+const fmtDur = (s) => s >= 3600 ? (s / 3600).toFixed(1) + "h" : Math.round(s / 60) + "m";
+
 function renderParked(list) {
   const el = $("parked");
   el.innerHTML = "";
   if (!list || !list.length) { el.textContent = "none"; return; }
   const tbl = document.createElement("table");
   tbl.innerHTML = "<thead><tr><th>Unit</th><th>Pkts</th><th>psig</th>"
-    + "<th>Last seen</th></tr></thead>";
+    + "<th>Duration</th><th>Last seen</th></tr></thead>";
   const tb = document.createElement("tbody");
   for (const p of list) {
     const tr = document.createElement("tr");
     tr.innerHTML = `<td>${p.unit}</td><td>${p.packets}</td>`
       + `<td>${p.pressure ?? "—"}</td>`
-      + `<td>${p.last_seen ? p.last_seen.slice(5) : "—"}</td>`;
+      + `<td>${fmtDur(p.duration_s)}</td>`
+      + `<td>${fmtDur(p.last_ago_s)} ago</td>`;
     tb.appendChild(tr);
   }
   tbl.appendChild(tb);
